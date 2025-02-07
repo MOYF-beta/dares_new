@@ -1,0 +1,242 @@
+DARES_cpe(
+  (backbone): Dinov2Backbone(
+    (embeddings): Dinov2Embeddings_MultiFrame(
+      (original_patch_embeddings): Dinov2Embeddings(
+        (patch_embeddings): Dinov2PatchEmbeddings(
+          (projection): Conv2d(3, 384, kernel_size=(14, 14), stride=(14, 14))
+        )
+        (dropout): Dropout(p=0.0, inplace=False)
+      )
+      (dropout): Dropout(p=0.0, inplace=False)
+      (depth_patch_embeddings): Dinov2PatchEmbeddings_MultiFrame(
+        (projection): Dinov2ComplexRes_Proj(
+          (projection_c): ComplexConv2d(
+            (conv2d_re): Conv2d(3, 384, kernel_size=(14, 14), stride=(14, 14))
+            (conv2d_im): Conv2d(3, 384, kernel_size=(14, 14), stride=(14, 14))
+          )
+          (olf_projection): Conv2d(3, 384, kernel_size=(14, 14), stride=(14, 14))
+          (time_merge_layer): Conv3d(768, 384, kernel_size=(3, 1, 1), stride=(1, 1, 1))
+        )
+      )
+    )
+    (encoder): Dinov2Encoder(
+      (layer): ModuleList(
+        (0-1): 2 x Dinov2Layer(
+          (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (attention): Dinov2SdpaAttention(
+            (attention): Dinov2SdpaSelfAttention(
+              (query): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=14, bias=False)
+                (linear_b): Linear(in_features=14, out_features=384, bias=False)
+              )
+              (key): Linear(in_features=384, out_features=384, bias=True)
+              (value): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=14, bias=False)
+                (linear_b): Linear(in_features=14, out_features=384, bias=False)
+              )
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+            (output): Dinov2SelfOutput(
+              (dense): Linear(in_features=384, out_features=384, bias=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+          )
+          (layer_scale1): Dinov2LayerScale()
+          (drop_path): Identity()
+          (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (mlp): Dinov2MLP(
+            (fc1): _LoRA_blk(
+              (w): Linear(in_features=384, out_features=1536, bias=True)
+              (linear_a): Linear(in_features=384, out_features=14, bias=False)
+              (linear_b): Linear(in_features=14, out_features=1536, bias=False)
+            )
+            (activation): GELUActivation()
+            (fc2): _LoRA_blk(
+              (w): Linear(in_features=1536, out_features=384, bias=True)
+              (linear_a): Linear(in_features=1536, out_features=14, bias=False)
+              (linear_b): Linear(in_features=14, out_features=384, bias=False)
+            )
+          )
+          (layer_scale2): Dinov2LayerScale()
+        )
+        (2-3): 2 x Dinov2Layer(
+          (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (attention): Dinov2SdpaAttention(
+            (attention): Dinov2SdpaSelfAttention(
+              (query): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=12, bias=False)
+                (linear_b): Linear(in_features=12, out_features=384, bias=False)
+              )
+              (key): Linear(in_features=384, out_features=384, bias=True)
+              (value): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=12, bias=False)
+                (linear_b): Linear(in_features=12, out_features=384, bias=False)
+              )
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+            (output): Dinov2SelfOutput(
+              (dense): Linear(in_features=384, out_features=384, bias=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+          )
+          (layer_scale1): Dinov2LayerScale()
+          (drop_path): Identity()
+          (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (mlp): Dinov2MLP(
+            (fc1): _LoRA_blk(
+              (w): Linear(in_features=384, out_features=1536, bias=True)
+              (linear_a): Linear(in_features=384, out_features=12, bias=False)
+              (linear_b): Linear(in_features=12, out_features=1536, bias=False)
+            )
+            (activation): GELUActivation()
+            (fc2): _LoRA_blk(
+              (w): Linear(in_features=1536, out_features=384, bias=True)
+              (linear_a): Linear(in_features=1536, out_features=12, bias=False)
+              (linear_b): Linear(in_features=12, out_features=384, bias=False)
+            )
+          )
+          (layer_scale2): Dinov2LayerScale()
+        )
+        (4-5): 2 x Dinov2Layer(
+          (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (attention): Dinov2SdpaAttention(
+            (attention): Dinov2SdpaSelfAttention(
+              (query): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=10, bias=False)
+                (linear_b): Linear(in_features=10, out_features=384, bias=False)
+              )
+              (key): Linear(in_features=384, out_features=384, bias=True)
+              (value): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=10, bias=False)
+                (linear_b): Linear(in_features=10, out_features=384, bias=False)
+              )
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+            (output): Dinov2SelfOutput(
+              (dense): Linear(in_features=384, out_features=384, bias=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+          )
+          (layer_scale1): Dinov2LayerScale()
+          (drop_path): Identity()
+          (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (mlp): Dinov2MLP(
+            (fc1): _LoRA_blk(
+              (w): Linear(in_features=384, out_features=1536, bias=True)
+              (linear_a): Linear(in_features=384, out_features=10, bias=False)
+              (linear_b): Linear(in_features=10, out_features=1536, bias=False)
+            )
+            (activation): GELUActivation()
+            (fc2): _LoRA_blk(
+              (w): Linear(in_features=1536, out_features=384, bias=True)
+              (linear_a): Linear(in_features=1536, out_features=10, bias=False)
+              (linear_b): Linear(in_features=10, out_features=384, bias=False)
+            )
+          )
+          (layer_scale2): Dinov2LayerScale()
+        )
+        (6-11): 6 x Dinov2Layer(
+          (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (attention): Dinov2SdpaAttention(
+            (attention): Dinov2SdpaSelfAttention(
+              (query): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=8, bias=False)
+                (linear_b): Linear(in_features=8, out_features=384, bias=False)
+              )
+              (key): Linear(in_features=384, out_features=384, bias=True)
+              (value): _LoRA_blk(
+                (w): Linear(in_features=384, out_features=384, bias=True)
+                (linear_a): Linear(in_features=384, out_features=8, bias=False)
+                (linear_b): Linear(in_features=8, out_features=384, bias=False)
+              )
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+            (output): Dinov2SelfOutput(
+              (dense): Linear(in_features=384, out_features=384, bias=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+            )
+          )
+          (layer_scale1): Dinov2LayerScale()
+          (drop_path): Identity()
+          (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+          (mlp): Dinov2MLP(
+            (fc1): _LoRA_blk(
+              (w): Linear(in_features=384, out_features=1536, bias=True)
+              (linear_a): Linear(in_features=384, out_features=8, bias=False)
+              (linear_b): Linear(in_features=8, out_features=1536, bias=False)
+            )
+            (activation): GELUActivation()
+            (fc2): _LoRA_blk(
+              (w): Linear(in_features=1536, out_features=384, bias=True)
+              (linear_a): Linear(in_features=1536, out_features=8, bias=False)
+              (linear_b): Linear(in_features=8, out_features=384, bias=False)
+            )
+          )
+          (layer_scale2): Dinov2LayerScale()
+        )
+      )
+    )
+    (layernorm): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+  )
+  (neck): DepthAnythingNeck(
+    (reassemble_stage): DepthAnythingReassembleStage(
+      (layers): ModuleList(
+        (0): DepthAnythingReassembleLayer(
+          (projection): Conv2d(384, 48, kernel_size=(1, 1), stride=(1, 1))
+          (resize): ConvTranspose2d(48, 48, kernel_size=(4, 4), stride=(4, 4))
+        )
+        (1): DepthAnythingReassembleLayer(
+          (projection): Conv2d(384, 96, kernel_size=(1, 1), stride=(1, 1))
+          (resize): ConvTranspose2d(96, 96, kernel_size=(2, 2), stride=(2, 2))
+        )
+        (2): DepthAnythingReassembleLayer(
+          (projection): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1))
+          (resize): Identity()
+        )
+        (3): DepthAnythingReassembleLayer(
+          (projection): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1))
+          (resize): Conv2d(384, 384, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+        )
+      )
+    )
+    (convs): ModuleList(
+      (0): Conv2d(48, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+      (1): Conv2d(96, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+      (2): Conv2d(192, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+      (3): Conv2d(384, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+    )
+    (fusion_stage): DepthAnythingFeatureFusionStage(
+      (layers): ModuleList(
+        (0-3): 4 x DepthAnythingFeatureFusionLayer(
+          (projection): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+          (residual_layer1): DepthAnythingPreActResidualLayer(
+            (activation1): ReLU()
+            (convolution1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (activation2): ReLU()
+            (convolution2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (residual_layer2): DepthAnythingPreActResidualLayer(
+            (activation1): ReLU()
+            (convolution1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (activation2): ReLU()
+            (convolution2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+      )
+    )
+  )
+  (head): DepthAnythingDepthEstimationHead(
+    (conv1): Conv2d(64, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (conv2): Conv2d(32, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (activation1): ReLU()
+    (conv3): Conv2d(32, 1, kernel_size=(1, 1), stride=(1, 1))
+    (activation2): Sigmoid()
+  )
+)

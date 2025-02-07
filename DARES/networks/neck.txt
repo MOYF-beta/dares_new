@@ -1,0 +1,47 @@
+DepthAnythingNeck(
+  (reassemble_stage): DepthAnythingReassembleStage(
+    (layers): ModuleList(
+      (0): DepthAnythingReassembleLayer(
+        (projection): Conv2d(384, 48, kernel_size=(1, 1), stride=(1, 1))
+        (resize): ConvTranspose2d(48, 48, kernel_size=(4, 4), stride=(4, 4))
+      )
+      (1): DepthAnythingReassembleLayer(
+        (projection): Conv2d(384, 96, kernel_size=(1, 1), stride=(1, 1))
+        (resize): ConvTranspose2d(96, 96, kernel_size=(2, 2), stride=(2, 2))
+      )
+      (2): DepthAnythingReassembleLayer(
+        (projection): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1))
+        (resize): Identity()
+      )
+      (3): DepthAnythingReassembleLayer(
+        (projection): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1))
+        (resize): Conv2d(384, 384, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+      )
+    )
+  )
+  (convs): ModuleList(
+    (0): Conv2d(48, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+    (1): Conv2d(96, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+    (2): Conv2d(192, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+    (3): Conv2d(384, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+  )
+  (fusion_stage): DepthAnythingFeatureFusionStage(
+    (layers): ModuleList(
+      (0-3): 4 x DepthAnythingFeatureFusionLayer(
+        (projection): Conv2d(64, 64, kernel_size=(1, 1), stride=(1, 1))
+        (residual_layer1): DepthAnythingPreActResidualLayer(
+          (activation1): ReLU()
+          (convolution1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (activation2): ReLU()
+          (convolution2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+        (residual_layer2): DepthAnythingPreActResidualLayer(
+          (activation1): ReLU()
+          (convolution1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (activation2): ReLU()
+          (convolution2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+    )
+  )
+)
