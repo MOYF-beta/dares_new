@@ -65,7 +65,8 @@ class VitTransformDecoder(nn.Module):
                  scales=range(4),    # 输出的多尺度层级（0为最高分辨率）
                  num_output_channels=3,
                  decoder_patch_size=16,
-                 num_decoder_layers=1):
+                 num_decoder_layers=1,
+                 down_sample_method = 'interpolation'):
         super().__init__()
         
         self.scales = scales
@@ -102,18 +103,24 @@ class VitTransformDecoder(nn.Module):
         # 4. 多尺度下采样卷积头
         self.scale_convs = nn.ModuleDict()
         for s in self.scales:
-            # 每个尺度对应一个下采样流程
-            head = nn.Sequential(
-                nn.Conv2d(num_output_channels, num_output_channels, 
-                         kernel_size=3, stride=2, padding=1),  # 下采样
-                nn.ReLU(inplace=True),
-                nn.Conv2d(num_output_channels, num_output_channels, 
-                         kernel_size=3, padding=1),
-                nn.ReLU(inplace=True)
-            )
-            # 初始化最后一层卷积的权重
-            head[-2].weight.data.normal_(0, 1e-5)
-            head[-2].bias.data.zero_()
+            if down_sample_method == 'interpolation':
+            # 使用插值下采样
+                head = nn.Sequential(
+                    nn.Upsample(scale_factor=1/(2), mode='bilinear', align_corners=False),
+                )
+            elif down_sample_method == 'conv':
+            # 使用卷积下采样
+                head = nn.Sequential(
+                    nn.Conv2d(num_output_channels, num_output_channels, 
+                        kernel_size=3, stride=2, padding=1),  # 下采样
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(num_output_channels, num_output_channels, 
+                        kernel_size=3, padding=1),
+                    nn.ReLU(inplace=True)
+                )
+                # 初始化最后一层卷积的权重
+                head[-2].weight.data.normal_(0, 1e-5)
+                head[-2].bias.data.zero_()
             self.scale_convs[str(s)] = head
         # 5. 激活函数
         self.Tanh = nn.Tanh()
