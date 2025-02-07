@@ -2,7 +2,7 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../DARES')))
-from exps.attn_encoder.train_attn_encoder import TrainerBaseline
+from exps.attn_encoder.trainer_attn_encoder import TrainerAttnEncoder
 from exps.attn_encoder.options_attn_encoder import AttnEncoderOpt
 from exps.exp_setup_local import ds_train, ds_val, check_test_only, get_unique_name, log_path
 from exps.find_best import find_best
@@ -12,7 +12,7 @@ model_name = 'dares_attn_encoder'
 pretrained_root_dir = './DARES/af_sfmlearner_weights'
 if __name__ == "__main__":
     if not check_test_only():
-        trainer = TrainerBaseline(model_name, log_path, opt, 
+        trainer = TrainerAttnEncoder(model_name, log_path, opt, 
                           train_eval_ds={'train': ds_train, 'val': ds_val},
                           pretrained_root_dir=pretrained_root_dir)
         trainer.train()

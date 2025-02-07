@@ -109,7 +109,7 @@ class ViTMultiImageInput(nn.Module):
 
 class VitEncoder(nn.Module):
     """兼容ResNet接口的ViT编码器"""
-    def __init__(self, num_input_images=1, pretrained=True, img_size=(320,256)):
+    def __init__(self, num_input_images=1, pretrained=True, img_size=(256,320)):
         super().__init__()
         self.encoder = ViTMultiImageInput(num_input_images, img_size)
         self.num_ch_enc = self.encoder.num_ch_enc
@@ -128,7 +128,8 @@ class VitEncoder(nn.Module):
 
     def forward(self, input_image):
         # 标准化处理 (与ResNet保持一致)
-        x = (input_image - 0.45) / 0.225
+        # x = (input_image - 0.45) / 0.225
+        x = input_image
         features = self.encoder(x)
         
         # 对齐ResNet的特征层级

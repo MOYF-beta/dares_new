@@ -3,8 +3,8 @@ import torch
 from DARES.networks.dares import DARES
 from DARES.networks.vit_encoder import VitEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
-from DARES.networks.optical_flow_decoder import PositionDecoder
-from DARES.networks.appearance_flow_decoder import TransformDecoder
+from DARES.networks.optical_flow_decoder import VitPositionDecoder
+from DARES.networks.appearance_flow_decoder import VitTransformDecoder
 from exps.trainer_abc import Trainer
 
 class TrainerVitEncoder(Trainer):
@@ -12,15 +12,15 @@ class TrainerVitEncoder(Trainer):
         # Initialize depth model
         encoders = {
             "depth_model": DARES(),
-            "pose_encoder": VitEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
-            "position_encoder": VitEncoder(self.opt.num_layers, False, num_input_images=2),
-            "transform_encoder": VitEncoder(self.opt.num_layers, False, num_input_images=2)
+            "pose_encoder": VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,img_size=(self.opt.height, self.opt.width)),
+            "position_encoder": VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,img_size=(self.opt.height, self.opt.width)),
+            "transform_encoder": VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,img_size=(self.opt.height, self.opt.width))
         }
 
         decoders = {
             "pose": PoseDecoder_i(encoders["pose_encoder"].num_ch_enc, image_width=self.opt.width, image_height=self.opt.height, predict_intrinsics=self.opt.learn_intrinsics, simplified_intrinsic=self.opt.simplified_intrinsic, num_input_features=1, num_frames_to_predict_for=2),
-            "position": PositionDecoder(encoders["position_encoder"].num_ch_enc, self.opt.scales),
-            "transform": TransformDecoder(encoders["transform_encoder"].num_ch_enc, self.opt.scales)
+            "position": VitPositionDecoder(encoders["position_encoder"].num_ch_enc, self.opt.scales),
+            "transform": VitTransformDecoder(encoders["transform_encoder"].num_ch_enc, self.opt.scales)
         }
 
         all_models = [
