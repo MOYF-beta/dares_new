@@ -153,7 +153,7 @@ class VitTransformDecoder(nn.Module):
         outputs = {}
         for s in self.scales:
             if s == 0:  # 最高分辨率（原始分辨率）
-                outputs[("transform", s)] = x
+                outputs[("transform", s)] = self.Tanh(x)
             else:       # 下采样到更低分辨率
                 # 逐级下采样
                 scale_output = x
