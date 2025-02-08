@@ -5,17 +5,17 @@ from DARES.networks.vit_encoder import VitEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 from DARES.networks.optical_flow_decoder import VitPositionDecoder
 from DARES.networks.appearance_flow_decoder import VitTransformDecoder
-from DARES.networks.resnet_encoder import AttentionalResnetEncoder
 from exps.trainer_abc import Trainer
 
 class TrainerVitEncoder(Trainer):
     def load_model(self):
         # Initialize depth model
+        shared_encoder = VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,img_size=(self.opt.height, self.opt.width))
         encoders = {
             "depth_model": DARES(),
             "pose_encoder": VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,img_size=(self.opt.height, self.opt.width)),
-            "position_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
-            "transform_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
+            "position_encoder": shared_encoder,
+            "transform_encoder": shared_encoder
         }
 
         decoders = {
