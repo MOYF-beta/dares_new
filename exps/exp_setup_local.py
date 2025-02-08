@@ -13,6 +13,8 @@ log_path = './logs'
 ds_path = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized'
 splits_dir = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized/splits'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+if device == 'cuda':
+    torch.backends.cudnn.benchmark = True
 def check_test_only():
     return os.getenv('TEST_ONLY', 'False').lower() == 'true'
 
