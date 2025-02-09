@@ -5,9 +5,9 @@
 #$ -l gpu=true
 #$ -l gpu_type=a6000
 #$ -pe gpu 1
-#$ -N train_vit_encoder
-#$ -o /cluster/project7/Llava_2024/changhao/dares_new/logs/train_vit_encoder.log
-#$ -e /cluster/project7/Llava_2024/changhao/dares_new/logs/train_vit_encoder.err
+#$ -N train_pose_vit_encoder
+#$ -o /cluster/project7/Llava_2024/changhao/dares_new/logs/train_pose_vit_encoder.log
+#$ -e /cluster/project7/Llava_2024/changhao/dares_new/logs/train_pose_vit_encoder.err
 
 export PATH=/share/apps/cuda-11.8/bin:/usr/local/cuda-11.8/bin:${PATH}
 export LD_LIBRARY_PATH=/share/apps/cuda-11.8/lib64:/usr/local/cuda-11.8/lib:/lib64:${LD_LIBRARY_PATH}
@@ -16,4 +16,4 @@ export LIBRARY_PATH=/share/apps/cuda-11.8/lib64:/usr/local/cuda-11.8/lib:/lib64:
 
 source /cluster/project7/Llava_2024/venvs/anaconda3/etc/profile.d/conda.sh
 conda activate monodepth
-python /cluster/project7/Llava_2024/changhao/dares_new/exps/seperate_vit_encoder/train_vit_encoder.py
+python /cluster/project7/Llava_2024/changhao/dares_new/exps/shared_vit_encoder_with_pose/train_pose_vit_encoder.py

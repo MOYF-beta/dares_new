@@ -8,7 +8,7 @@ from exps.exp_setup_local import ds_train, ds_val, check_test_only, get_unique_n
 from exps.find_best import find_best
 
 opt = VitEndoderOpt
-model_name = 'dares_shared_vit_encoder_with_pose'
+model_name = get_unique_name('dares_shared_vit_encoder_with_pose')
 pretrained_root_dir = None
 if __name__ == "__main__":
     if not check_test_only():

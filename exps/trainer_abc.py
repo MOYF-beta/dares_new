@@ -41,7 +41,7 @@ class Trainer(ABC):
         self.optimizer_pose = optim.Adam(self.param_pose_net, self.opt.pos_learning_rate, eps=1e-7, weight_decay=self.opt.weight_decay)
         self.lr_scheduler_pose = optim.lr_scheduler.StepLR(self.optimizer_pose, self.opt.scheduler_step_size, 0.1)
         
-        self.optimizer_depth = optim.Adam(self.param_monodepth, self.opt.learning_rate, eps=1e-7, weight_decay=self.opt.weight_decay)
+        self.optimizer_depth = optim.Adam(self.param_monodepth, self.opt.learning_rate, eps=1e-7, weight_decay=self.opt.weight_decay_pose)
         self.lr_scheduler_depth = optim.lr_scheduler.StepLR(self.optimizer_depth, self.opt.scheduler_step_size, 0.1)
 
 
