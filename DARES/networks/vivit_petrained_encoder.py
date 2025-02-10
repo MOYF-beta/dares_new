@@ -1,13 +1,17 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from peft import get_peft_model, LoraConfig, TaskType
 from transformers import VivitForVideoClassification, VivitModel
 
 class VivitLoraEncoder(nn.Module):
     """ViViT encoder with LoRA support and ResNet-compatible interface"""
-    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224)):
+    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224), unstack_input = True):
         super().__init__()
         
+        self.img_size = img_size
+        self.num_input_images = num_input_images
+        self.unstack_input = unstack_input
         # Initialize base model
         pretrained_model = VivitForVideoClassification.from_pretrained("google/vivit-b-16x2-kinetics400")
         config = pretrained_model.config
@@ -38,6 +42,11 @@ class VivitLoraEncoder(nn.Module):
         # Define output channels (matching hidden size across layers)
         self.num_ch_enc = [768] * 5  # Assuming 5 output features needed to match ResNet interface
         
+        # Calculate patch info
+        self.patch_size = 16
+        self.expected_height = (img_size[0] // self.patch_size) * self.patch_size
+        self.expected_width = (img_size[1] // self.patch_size) * self.patch_size
+        
     def process_features(self, hidden_states):
         """Convert encoder output to spatial features"""
         # Remove class token and reshape
@@ -52,6 +61,24 @@ class VivitLoraEncoder(nn.Module):
         features = features.permute(0, 3, 1, 2)
         
         return features
+
+    def adjust_input_size(self, x):
+        """Adjust input size to match model's expected dimensions"""
+        B, N, C, H, W = x.shape
+        
+        if H != self.expected_height or W != self.expected_width:
+            # Resize to expected dimensions
+            x_resized = torch.zeros(B, N, C, self.expected_height, self.expected_width, 
+                                  device=x.device, dtype=x.dtype)
+            
+            for b in range(B):
+                for n in range(N):
+                    x_resized[b, n] = F.interpolate(x[b, n].unsqueeze(0), 
+                                                  size=(self.expected_height, self.expected_width),
+                                                  mode='bilinear', 
+                                                  align_corners=False).squeeze(0)
+            return x_resized
+        return x
         
     def forward(self, input_images):
         """
@@ -61,14 +88,14 @@ class VivitLoraEncoder(nn.Module):
         Returns:
             list of features at different scales
         """
-        B, N, C, H, W = input_images.shape
         
-        # Reshape input to match ViViT's expected format
-        # From (B, N, C, H, W) to (B, C, N, H, W)
-        pixel_values = input_images.permute(0, 2, 1, 3, 4)
-        
+        if self.unstack_input:
+            B,C,H,W = input_images.shape
+            input_images = input_images.view(B, self.num_input_images, C//self.num_input_images, H, W)
+        # Check and adjust input size if necessary
+        input_images = self.adjust_input_size(input_images)
         # Get embeddings
-        embedding_output = self.model.embeddings(pixel_values, interpolate_pos_encoding=True)
+        embedding_output = self.model.embeddings(input_images, interpolate_pos_encoding=True)
         
         # Pass through encoder
         encoder_outputs = self.model.encoder(
@@ -93,15 +120,17 @@ class VivitLoraEncoder(nn.Module):
 
 # Example usage:
 if __name__ == "__main__":
-    # Create model
-    model = VivitLoraEncoder(num_input_images=2)
+    # Create model with specific image size
+    model = VivitLoraEncoder(num_input_images=2, img_size=(224, 224))
     
-    # Create sample input (B, N, C, H, W)
-    x = torch.randn(1, 3, 2, 224, 224)
+    # Test with different input sizes
+    inputs = [
+        torch.randn(1, 6, 224, 224),  # Expected size
+        torch.randn(1, 6, 256, 256),  # Different size
+    ]
     
-    # Get features
-    features = model(x)
-    
-    # Print shapes
-    for i, feat in enumerate(features):
-        print(f"Feature level {i} shape:", feat.shape)
+    for i, x in enumerate(inputs):
+        print(f"\nTesting input size: {x.shape}")
+        features = model(x)
+        for j, feat in enumerate(features):
+            print(f"Feature level {j} shape:", feat.shape)

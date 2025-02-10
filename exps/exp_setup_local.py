@@ -10,8 +10,13 @@ The setup includes:
     - dataset objects
 '''
 log_path = './logs'
-ds_path = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized'
-splits_dir = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized/splits'
+platform = 'local'
+if platform == 'local':
+    ds_path = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized'
+    splits_dir = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized/splits'
+else:
+    ds_path = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized'
+    splits_dir = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized/splits'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 if device == 'cuda':
     torch.backends.cudnn.benchmark = True

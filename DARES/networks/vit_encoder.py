@@ -120,19 +120,15 @@ class VitEncoder(nn.Module):
         pretrained_dict = vit_b_16(weights='DEFAULT').state_dict()
         model_dict = self.encoder.state_dict()
         
-        # 过滤可加载参数
         pretrained_dict = {k: v for k, v in pretrained_dict.items() 
                          if k in model_dict and "patch_embed" not in k}
         model_dict.update(pretrained_dict)
         self.encoder.load_state_dict(model_dict)
 
     def forward(self, input_image):
-        # 标准化处理 (与ResNet保持一致)
-        # x = (input_image - 0.45) / 0.225
         x = input_image
         features = self.encoder(x)
-        
-        # 对齐ResNet的特征层级
+
         output_features = [features[0]]  # 第一层
         for f in features[1:]:
             output_features.append(output_features[-1])
