@@ -10,7 +10,7 @@ The setup includes:
     - dataset objects
 '''
 log_path = './logs'
-platform = 'local'
+platform = 'local' if os.getcwd().startswith('/mnt') else 'cluster'
 if platform == 'local':
     ds_path = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized'
     splits_dir = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized/splits'
