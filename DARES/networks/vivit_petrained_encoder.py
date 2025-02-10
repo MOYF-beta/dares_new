@@ -6,12 +6,14 @@ from transformers import VivitForVideoClassification, VivitModel
 
 class VivitLoraEncoder(nn.Module):
     """ViViT encoder with LoRA support and ResNet-compatible interface"""
-    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224), unstack_input = True):
+    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224), unstack_input=True, full_finetune=False):
         super().__init__()
         
         self.img_size = img_size
         self.num_input_images = num_input_images
         self.unstack_input = unstack_input
+        self.full_finetune = full_finetune
+        
         # Initialize base model
         pretrained_model = VivitForVideoClassification.from_pretrained("google/vivit-b-16x2-kinetics400")
         config = pretrained_model.config
@@ -26,18 +28,24 @@ class VivitLoraEncoder(nn.Module):
         for param in self.base_model.embeddings.parameters():
             param.requires_grad = True
             
-        # Configure LoRA
-        lora_config = LoraConfig(
-            task_type=TaskType.FEATURE_EXTRACTION,
-            r=16,  # LoRA rank
-            lora_alpha=32,
-            target_modules=["query", "value"],  # Apply LoRA to attention layers
-            lora_dropout=0.1,
-            bias="none"
-        )
-        
-        # Apply LoRA to the model
-        self.model = get_peft_model(self.base_model, lora_config)
+        if not self.full_finetune:
+            # Configure LoRA
+            lora_config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                r=16,  # LoRA rank
+                lora_alpha=32,
+                target_modules=["query", "value"],  # Apply LoRA to attention layers
+                lora_dropout=0.1,
+                bias="none"
+            )
+            
+            # Apply LoRA to the model
+            self.model = get_peft_model(self.base_model, lora_config)
+        else:
+            # Full fine-tuning: use the base model directly and enable gradients for all parameters
+            self.model = self.base_model
+            for param in self.model.parameters():
+                param.requires_grad = True
         
         # Define output channels (matching hidden size across layers)
         self.num_ch_enc = [768] * 5  # Assuming 5 output features needed to match ResNet interface
@@ -121,7 +129,7 @@ class VivitLoraEncoder(nn.Module):
 # Example usage:
 if __name__ == "__main__":
     # Create model with specific image size
-    model = VivitLoraEncoder(num_input_images=2, img_size=(224, 224))
+    model = VivitLoraEncoder(num_input_images=2, img_size=(224, 224), full_finetune=True)
     
     # Test with different input sizes
     inputs = [
