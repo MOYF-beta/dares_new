@@ -11,7 +11,7 @@ from exps.options import DotDict
 
 def find_best(model_type, model_name, only_keep_best=False):
     warnings.filterwarnings("ignore")
-    if model_type == 'DARES' or model_type == 'DARES_CPE' or model_type == 'DARES_refine':
+    if model_type == 'DARES' or model_type == 'DARES_CPE' or model_type == 'DARES_peft':
         from exps.exp_setup_local import ds_test, ds_test_multi_frame, log_path
     else:
         raise ValueError(f"Model type {model_type} not supported.")
@@ -33,6 +33,15 @@ def find_best(model_type, model_name, only_keep_best=False):
                 'depth_model': depth_model
             }
             return evaluate(opt_dict, ds_and_model=ds_and_model)
+        elif model_type == 'DARES_peft':
+            test_dataloader = DataLoader(ds_test, 16, shuffle=False, pin_memory=True, drop_last=False)
+        
+            depth_model = load_DARES(opt_dict, weight_path, 'depth_model.pth', refine=False, peft=True)
+            ds_and_model = {
+                'dataloader': test_dataloader,
+                'depth_model': depth_model
+            }
+            return evaluate(opt_dict, ds_and_model=ds_and_model)        
         elif model_type == 'DARES_refine':
             test_dataloader = DataLoader(ds_test, 16, shuffle=False, pin_memory=True, drop_last=False)
         

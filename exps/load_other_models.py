@@ -26,8 +26,11 @@ def load_pose_encoder_decoder_DARES(opt ):
     pose_decoder.eval()
     return pose_encoder, pose_decoder
 
-def load_DARES(opt, weight_path=None, pth_name='depth_model.pth', refine=True):
-    from DARES.networks import DARES
+def load_DARES(opt, weight_path=None, pth_name='depth_model.pth', refine=True, peft=False):
+    if peft:
+        from DARES.networks.dares_peft import DARES
+    else:
+        from DARES.networks.dares import DARES
     if weight_path is None:
         weight_path = opt.load_weights_folder
     depth_model_path = os.path.join(weight_path, pth_name)
