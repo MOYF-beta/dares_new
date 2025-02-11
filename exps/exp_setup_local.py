@@ -15,6 +15,7 @@ if platform == 'local':
     ds_path = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized'
     splits_dir = '/mnt/c/Users/14152/ZCH/Dev/datasets/SCARED_Images_Resized/splits'
 else:
+    os.environ['TRANSFORMERS_CACHE'] = '/cluster/project7/Llava_2024/changhao/TRANSFORMERS_CACHE'
     ds_path = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized'
     splits_dir = '/cluster/project7/Llava_2024/changhao/datasets/SCARED_Images_Resized/splits'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
