@@ -2,14 +2,14 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../DARES')))
-from exps.vivit_pose_encoder_full_finetune.trainer_vivit_pose_encoder import TrainerVivitPoseEncoder
-from exps.vivit_pose_encoder_full_finetune.options_vivit_pose_encoder import AttnEncoderOpt
+from exps.vivit_pose_encoder_new.trainer_vivit_pose_encoder import TrainerVivitPoseEncoder
+from exps.vivit_pose_encoder_new.options_vivit_pose_encoder import AttnEncoderOpt
 from exps.exp_setup_local import ds_train, ds_val, check_test_only, get_unique_name, log_path
 from exps.find_best import find_best
 
 opt = AttnEncoderOpt
-model_name = 'vivit_pose_encoder_full_finetune'
-pretrained_root_dir = './DARES/af_sfmlearner_weights'
+model_name = 'vivit_pose_encoder_new'
+pretrained_root_dir = './logs/dares_attn_encoder/models'
 if __name__ == "__main__":
     if not check_test_only():
         trainer = TrainerVivitPoseEncoder(model_name, log_path, opt, 

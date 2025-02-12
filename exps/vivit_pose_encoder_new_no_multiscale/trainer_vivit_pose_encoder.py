@@ -3,7 +3,7 @@ import torch
 from DARES.networks.dares import DARES
 from DARES.networks.resnet_encoder import AttentionalResnetEncoder
 from DARES.networks.vivit_petrained_encoder import VivitLoraEncoder
-from DARES.networks.pose_decoder import SimplifiedPoseDecoder as PoseDecoder_i
+from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 from DARES.networks.optical_flow_decoder import PositionDecoder
 from DARES.networks.appearance_flow_decoder import TransformDecoder
 from exps.trainer_abc import Trainer
@@ -13,13 +13,13 @@ class TrainerVivitPoseEncoder(Trainer):
         # Initialize depth model
         encoders = {
             "depth_model": DARES(),
-            "pose_encoder": VivitLoraEncoder(self.num_pose_frames, True),
+            "pose_encoder": VivitLoraEncoder(self.num_pose_frames, False, full_finetune=True),
             "position_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
             "transform_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
         }
 
         decoders = {
-            "pose": PoseDecoder_i(encoders["pose_encoder"].num_ch_enc, image_width=self.opt.width, image_height=self.opt.height, predict_intrinsics=self.opt.learn_intrinsics, num_input_features=1, num_frames_to_predict_for=2),
+            "pose": PoseDecoder_i(encoders["pose_encoder"].num_ch_enc, image_width=self.opt.width, image_height=self.opt.height, predict_intrinsics=self.opt.learn_intrinsics, simplified_intrinsic=self.opt.simplified_intrinsic, num_input_features=1, num_frames_to_predict_for=2),
             "position": PositionDecoder(encoders["position_encoder"].num_ch_enc, self.opt.scales),
             "transform": TransformDecoder(encoders["transform_encoder"].num_ch_enc, self.opt.scales)
         }

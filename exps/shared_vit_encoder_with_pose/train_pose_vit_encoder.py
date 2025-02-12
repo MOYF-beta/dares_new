@@ -9,7 +9,7 @@ from exps.find_best import find_best
 
 opt = VitEndoderOpt
 model_name = get_unique_name('dares_shared_vit_encoder_with_pose')
-pretrained_root_dir = None
+pretrained_root_dir = './logs/dares_attn_encoder/models'
 if __name__ == "__main__":
     if not check_test_only():
         trainer = TrainerVitEncoder(model_name, log_path, opt, 
