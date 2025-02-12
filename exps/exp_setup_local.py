@@ -1,7 +1,7 @@
 import torch, random, os
 import numpy as np
-from exps.dataset import SCAREDRAWDataset
-from exps.options import DefaultOpt
+from dataset import SCAREDRAWDataset
+from options import DefaultOpt
 '''
 This file is used to set up the environment for the experiments, on my local machine
 The setup includes:
@@ -119,7 +119,7 @@ if platform == 'cluster':
         img_ext='.png'
     )
 
-    split_test = SCAREDRAWDataset(
+    ds_test_c3vd = SCAREDRAWDataset(
         data_path=ds_path,
         filenames=split_test,
         frame_idxs=[0],
@@ -165,7 +165,7 @@ if platform == 'cluster':
         img_ext='.png'
     )
 
-    test_filenames = SCAREDRAWDataset(
+    ds_test_pitvis = SCAREDRAWDataset(
         data_path=ds_path,
         filenames=test_filenames,
         frame_idxs=[0],
@@ -195,7 +195,7 @@ if platform == 'cluster':
         img_ext='.png'
     )
 
-    test_filenames = SCAREDRAWDataset(
+    ds_test_syntheticcolon = SCAREDRAWDataset(
         data_path=ds_path,
         filenames=test_filenames,
         frame_idxs=[0],
@@ -205,3 +205,31 @@ if platform == 'cluster':
         is_train=False,
         img_ext='.png'
     )
+
+def check_ds():
+    from tqdm import tqdm
+    print(f"Train: {len(ds_train)}")
+    print(f"Val: {len(ds_val)}")
+    print(f"Test: {len(ds_test)}")
+    print(f"Test Multi Frame: {len(ds_test_multi_frame)}")
+    if platform == 'cluster':
+        print(f"Train C3VD: {len(ds_train_c3vd)}")
+        print(f"Test C3VD: {len(ds_test_c3vd)}")
+        print(f"Train Hamlyn: {len(ds_train_hamlyn)}")
+        print(f"Train PitVis: {len(ds_train_pitvis)}")
+        print(f"Test PitVis: {len(ds_test_pitvis)}")
+        print(f"Train SyntheticColon: {len(ds_train_syntheticcolon)}")
+        print(f"Test SyntheticColon: {len(ds_test_syntheticcolon)}")
+    ds_to_check = [ds_train, ds_val, ds_test, ds_test_multi_frame]
+    if platform == 'cluster':
+        ds_to_check += [ds_train_c3vd, ds_test_c3vd, ds_train_hamlyn, ds_train_pitvis, ds_test_pitvis, ds_train_syntheticcolon, ds_test_syntheticcolon]
+
+    for ds in ds_to_check:
+        for i in tqdm(range(len(ds)), desc=f"Checking dataset {ds}"):
+            try:
+                a = ds[i]
+            except Exception as e:
+                print(f"Error at {i}: {e}")
+
+if __name__ == "__main__":
+    check_ds()

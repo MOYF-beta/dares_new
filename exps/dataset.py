@@ -218,8 +218,12 @@ class SCAREDDataset(MonoDataset):
         return False
 
     def get_color(self, folder, frame_index, side, do_flip):
-        color = self.loader(self.get_image_path(folder, frame_index, side))
-        
+        image_path = self.get_image_path(folder, frame_index, side)
+        if not os.path.exists(image_path):
+            frame_index = 0
+            image_path = self.get_image_path(folder, frame_index, side)
+        color = self.loader(image_path)
+        print(image_path)
         if do_flip:
             import PIL.Image as pil
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
