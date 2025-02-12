@@ -223,7 +223,7 @@ class SCAREDDataset(MonoDataset):
             frame_index = 0
             image_path = self.get_image_path(folder, frame_index, side)
         color = self.loader(image_path)
-        print(image_path)
+        
         if do_flip:
             import PIL.Image as pil
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
