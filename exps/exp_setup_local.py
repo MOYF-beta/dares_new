@@ -1,7 +1,7 @@
 import torch, random, os
 import numpy as np
-from dataset import SCAREDRAWDataset
-from options import DefaultOpt
+from exps.dataset import SCAREDRAWDataset
+from exps.options import DefaultOpt
 '''
 This file is used to set up the environment for the experiments, on my local machine
 The setup includes:
