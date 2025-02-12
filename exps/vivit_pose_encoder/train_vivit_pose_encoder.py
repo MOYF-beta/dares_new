@@ -8,8 +8,8 @@ from exps.exp_setup_local import ds_train, ds_val, check_test_only, get_unique_n
 from exps.find_best import find_best
 
 opt = AttnEncoderOpt
-model_name = 'vivit_pose_encoder'
-pretrained_root_dir = './DARES/af_sfmlearner_weights'
+model_name = 'vivit_pose_encoder_small_decoder'
+pretrained_root_dir = './logs/dares_attn_encoder/models'
 if __name__ == "__main__":
     if not check_test_only():
         trainer = TrainerVivitPoseEncoder(model_name, log_path, opt, 

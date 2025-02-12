@@ -45,9 +45,7 @@ class TrainerVitEncoder(Trainer):
             "position_encoder",
             "position",
             "transform_encoder",
-            "transform",
-            "pose_encoder",
-            "pose"
+            "transform"
             ]
             for model_name in model_paths:
                 model_path = os.path.join(self.pretrained_root_dir, "best", f"{model_name}.pth")

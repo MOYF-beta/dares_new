@@ -6,7 +6,8 @@ from transformers import VivitForVideoClassification, VivitModel
 
 class VivitLoraEncoder(nn.Module):
     """ViViT encoder with LoRA support and ResNet-compatible interface"""
-    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224), unstack_input=True, full_finetune=False):
+    def __init__(self, num_input_images=2, pretrained=True, img_size=(224, 224), 
+            unstack_input=True, full_finetune=False):
         super().__init__()
         
         self.img_size = img_size

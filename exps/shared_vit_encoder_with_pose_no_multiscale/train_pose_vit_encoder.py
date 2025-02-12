@@ -2,13 +2,13 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../DARES')))
-from exps.shared_vit_encoder.trainer_vit_encoder import TrainerVitEncoder
-from exps.shared_vit_encoder.options_vit_encoder import VitEndoderOpt
+from exps.shared_vit_encoder_with_pose_no_multiscale.trainer_vit_encoder import TrainerVitEncoder
+from exps.shared_vit_encoder_with_pose_no_multiscale.options_vit_encoder import VitEndoderOpt
 from exps.exp_setup_local import ds_train, ds_val, check_test_only, get_unique_name, log_path
 from exps.find_best import find_best
 
 opt = VitEndoderOpt
-model_name = get_unique_name('dares_shared_vit_encoder')
+model_name = 'dares_shared_vit_encoder_with_pose_no_multiscale'
 pretrained_root_dir = './logs/dares_attn_encoder/models'
 if __name__ == "__main__":
     if not check_test_only():
