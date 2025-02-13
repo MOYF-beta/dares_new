@@ -2,14 +2,20 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import torch
-import networks
-import numpy as np
+import sys
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from exps.dataset import SCAREDRAWDataset
 from torch.utils.data import DataLoader
+import numpy as np
+from DARES.networks.resnet_encoder import AttentionalResnetEncoder
+from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
+
 from layers import transformation_from_parameters
 from utils import readlines
 from options import MonodepthOptions
-from datasets import SCAREDRAWDataset
+from exps.exp_setup_local import ds_path ,splits_dir
 import warnings
 warnings.filterwarnings('ignore')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -71,28 +77,28 @@ def compute_re(gtruth_r, pred_r):
     return RE / gtruth_r.shape[0]
 
 
-def evaluate(opt):
+def evaluate(opt, load_weights_folder, scared_pose_seq=1):
     """Evaluate odometry on the SCARED dataset
     """
-    assert os.path.isdir(opt.load_weights_folder), \
-        "Cannot find a folder at {}".format(opt.load_weights_folder)
+    assert os.path.isdir(load_weights_folder), \
+        "Cannot find a folder at {}".format(load_weights_folder)
 
     filenames = readlines(
-        os.path.join(os.path.dirname(__file__), "splits", "endovis",
-                     "test_files_sequence{}.txt".format(opt.scared_pose_seq)))
+        os.path.join(ds_path, "splits",
+                     "test_files_sequence{}.txt".format(scared_pose_seq)))
 
-    dataset = SCAREDRAWDataset(opt.data_path, filenames, opt.height, opt.width,
+    dataset = SCAREDRAWDataset(ds_path, filenames, opt.height, opt.width,
                                [0, 1], 4, is_train=False)
     dataloader = DataLoader(dataset, opt.batch_size, shuffle=False,
                             num_workers=opt.num_workers, pin_memory=True, drop_last=False)
 
-    pose_encoder_path = os.path.join(opt.load_weights_folder, "pose_encoder.pth")
-    pose_decoder_path = os.path.join(opt.load_weights_folder, "pose.pth")
+    pose_encoder_path = os.path.join(load_weights_folder, "pose_encoder.pth")
+    pose_decoder_path = os.path.join(load_weights_folder, "pose.pth")
 
-    pose_encoder = networks.ResnetEncoder(opt.num_layers, False, 2)
+    pose_encoder = AttentionalResnetEncoder(opt.num_layers, False, num_input_images=2)
     pose_encoder.load_state_dict(torch.load(pose_encoder_path, map_location=device.type))
 
-    pose_decoder = networks.PoseDecoder(pose_encoder.num_ch_enc, 1, 2)
+    pose_decoder = PoseDecoder_i(pose_encoder.num_ch_enc, image_width=opt.width, image_height=opt.height, predict_intrinsics=opt.learn_intrinsics, simplified_intrinsic=opt.simplified_intrinsic, num_input_features=1, num_frames_to_predict_for=2)
     pose_decoder.load_state_dict(torch.load(pose_decoder_path, map_location=device.type))
 
     pose_encoder.to(device)
@@ -114,16 +120,16 @@ def evaluate(opt):
             all_color_aug = torch.cat([inputs[("color", 1, 0)], inputs[("color", 0, 0)]], 1)
 
             features = [pose_encoder(all_color_aug)]
-            axisangle, translation = pose_decoder(features)
+            axisangle, translation, intrinsics = pose_decoder(features)
 
             pred_poses.append(
                 transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
     # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "pose_our.npz"), data=np.array(pred_poses))
-    np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq{}.npz".format(opt.scared_pose_seq)), data=np.array(pred_poses))
+    np.savez_compressed(os.path.join(ds_path, "splits", "endovis", "pred_pose_sq{}.npz".format(scared_pose_seq)), data=np.array(pred_poses))
 
-    gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq{}.npz".format(opt.scared_pose_seq))
+    gt_path = os.path.join(ds_path, "splits", "endovis", "gt_poses_sq{}.npz".format(scared_pose_seq))
     gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
     ates = []
@@ -144,5 +150,5 @@ def evaluate(opt):
 
 
 if __name__ == "__main__":
-    options = MonodepthOptions()
-    evaluate(options.parse())
+    from exps.attn_encoder_dora.options_attn_encoder import AttnEncoderOpt
+    evaluate(AttnEncoderOpt, 'logs/dares_attn_encoder_dora/models/best', scared_pose_seq=2)

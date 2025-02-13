@@ -20,7 +20,7 @@ class Trainer(ABC):
         pass
 
     def __init__(self, model_name, log_dir, options, train_eval_ds={},
-                  pretrained_root_dir=None, merge_val_as_train=False):
+                  pretrained_root_dir=None, merge_val_as_train=False, multi_gpu=False):
         self.opt = options
         self.log_path = os.path.join(log_dir, model_name)
 

@@ -15,8 +15,8 @@ log_path = './logs'
 platform = 'local' if os.getcwd().startswith('/mnt') else 'cluster'
 ds_base = '/mnt/c/Users/14152/ZCH/Dev/datasets' if platform == 'local' else '/cluster/project7/Llava_2024/changhao/datasets'
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-if device == 'cuda':
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+if 'cuda' in device:
     torch.backends.cudnn.benchmark = True
 def check_test_only():
     return os.getenv('TEST_ONLY', 'False').lower() == 'true'
@@ -138,7 +138,7 @@ if platform == 'cluster':
     split_train = os.path.join(ds_path, 'splits/train_files.txt')
     train_filenames = readlines(split_train)
     
-    hamlyn_ratio = 0.1
+    hamlyn_ratio = 0.3
     ds_train_hamlyn = SCAREDRAWDataset(
         data_path=ds_path,
         filenames=train_filenames[:int(hamlyn_ratio * len(train_filenames))],
@@ -209,7 +209,7 @@ if platform == 'cluster':
         img_ext='.png'
     )
 
-    ds_base_model_train = torch.utils.data.ConcatDataset([ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_pitvis, ds_train_syntheticcolon])
+    ds_base_model_train = torch.utils.data.ConcatDataset([ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_syntheticcolon])
 
 def check_ds():
     from tqdm import tqdm

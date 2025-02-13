@@ -3,14 +3,17 @@ from mpl_toolkits.mplot3d import axes3d
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-from options import MonodepthOptions
-opt = MonodepthOptions().parse()
-# load data from file
-# you replace this using with open
-gt_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "gt_poses_sq{}.npz".format(opt.scared_pose_seq))
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from exps.attn_encoder_dora.options_attn_encoder import AttnEncoderOpt as opt
+from exps.dataset import SCAREDRAWDataset
+from exps.exp_setup_local import ds_path ,splits_dir
+
+gt_path = os.path.join(ds_path, "splits", "endovis", "gt_poses_sq{}.npz".format(opt.scared_pose_seq))
 gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
 
-our_path = os.path.join(os.path.dirname(__file__), "splits", "endovis", "pred_pose_sq{}.npz".format(opt.scared_pose_seq))
+our_path = os.path.join(ds_path, "splits", "endovis", "pred_pose_sq{}.npz".format(opt.scared_pose_seq))
 our_local_poses = np.load(our_path, fix_imports=True, encoding='latin1')["data"]
 
 
