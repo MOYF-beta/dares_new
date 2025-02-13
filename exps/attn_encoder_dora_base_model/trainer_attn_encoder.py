@@ -36,7 +36,9 @@ class TrainerAttnEncoder(Trainer):
         for model_name, model_instance, param_list in all_models:
             self.models[model_name] = model_instance
             param_list += list(filter(lambda p: p.requires_grad, model_instance.parameters()))
-            self.models[model_name].to(self.device)
+
+            self.models[model_name] = torch.nn.DataParallel(self.models[model_name])
+            self.models[model_name].to("cuda")
         # Load pretrained weights if available
         if self.pretrained_root_dir is not None:
             model_paths = [
