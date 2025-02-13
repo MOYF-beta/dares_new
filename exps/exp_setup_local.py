@@ -137,10 +137,11 @@ if platform == 'cluster':
     splits_dir = os.path.join(ds_base, 'hamlyn_as_SCARED', 'splits')
     split_train = os.path.join(ds_path, 'splits/train_files.txt')
     train_filenames = readlines(split_train)
-
+    
+    hamlyn_ratio = 0.1
     ds_train_hamlyn = SCAREDRAWDataset(
         data_path=ds_path,
-        filenames=train_filenames,
+        filenames=train_filenames[:int(hamlyn_ratio * len(train_filenames))],
         frame_idxs=DefaultOpt.frame_ids,
         height=DefaultOpt.height,
         width=DefaultOpt.width,
@@ -208,6 +209,8 @@ if platform == 'cluster':
         img_ext='.png'
     )
 
+    ds_base_model_train = torch.utils.data.ConcatDataset([ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_pitvis, ds_train_syntheticcolon])
+
 def check_ds():
     from tqdm import tqdm
     print(f"Train: {len(ds_train)}")
@@ -234,4 +237,7 @@ def check_ds():
                 print(f"Error at {i}: {e}")
 
 if __name__ == "__main__":
-    check_ds()
+    #check_ds()
+    split_train = "/mnt/c/Users/14152/ZCH/Dev/datasets/C3VD_as_SCARED/splits/test_files.txt"
+    a = readlines(split_train)
+    print(len(a))
