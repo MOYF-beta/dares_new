@@ -6,7 +6,7 @@ from exps.dataset import DataLoaderX as DataLoader
 from exps.load_other_models import *
 import shutil
 
-from DARES.evaluate_depth import evaluate
+
 from exps.options import DotDict
 from exps.exp_setup_local import log_path
 def find_best(model_type, model_name, only_keep_best=False, ds_name='SCARED', dataset = None):
@@ -28,7 +28,10 @@ def find_best(model_type, model_name, only_keep_best=False, ds_name='SCARED', da
     # Helper function to evaluate a model with a specific set of weights
     
     def evaluate_model(model_type, weight_path, dataset = ds_test, load_depth_from_npz = ds_name=='SCARED'):
-        
+        if ds_name=='SCARED':
+            from DARES.evaluate_depth_scared import evaluate
+        else:
+            from DARES.evaluate_depth import evaluate
         if model_type == 'DARES':
             test_dataloader = DataLoader(dataset, 16, shuffle=False, pin_memory=True, drop_last=False, num_workers=10)
             depth_model = load_DARES(opt_dict, weight_path, 'depth_model.pth', refine=False)

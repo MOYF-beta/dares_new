@@ -18,6 +18,10 @@ def disp_to_depth(disp, min_depth, max_depth):
     """
     scaled_disps = torch.zeros_like(disp)
     depths = torch.zeros_like(disp)
+    if isinstance(min_depth, float):
+        min_depth = torch.tensor([min_depth] * disp.shape[0]).to(disp.device)
+    if isinstance(max_depth, float):
+        max_depth = torch.tensor([max_depth] * disp.shape[0]).to(disp.device)
     for i in range(disp.shape[0]):
         disp[i] = min_depth[i] + (max_depth[i] - min_depth[i]) * disp[i]
         min_disp = 1 / max_depth[i]
