@@ -4,7 +4,7 @@ import time
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from exps.dataset import DataLoaderX as DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 from DARES.layers import *
@@ -318,8 +318,8 @@ class Trainer(ABC):
             else:
                 disp = F.interpolate(
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
-
-            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+            min_depth, max_depth = inputs["min_depth"], inputs["max_depth"]
+            _, depth = disp_to_depth(disp, min_depth, max_depth)
 
             outputs[("depth", 0, scale)] = depth
 

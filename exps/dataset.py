@@ -3,32 +3,42 @@ import os
 import random
 import numpy as np
 from PIL import Image 
-from PIL import ImageFile
 import cv2
 import torch
 import torch.utils.data as data
 from torchvision import transforms
+from prefetch_generator import BackgroundGenerator
+USE_PREFETCH = False
 
-ImageFile.LOAD_TRUNCATED_IMAGES=True
-
-def pil_loader(path):
+def pil_loader(path, mode='RGB'):
     with open(path, 'rb') as f:
         with Image.open(f) as img:
-            return img.convert('RGB')
+            if mode == 'RGB':
+                return img.convert('RGB')
+            elif mode == 'GRAY':
+                return img.convert('L')
+            else:
+                raise ValueError("Unsupported mode: {}".format(mode))
+
+def opencv_loader(path, mode = 'RGB'):
+    if mode == 'RGB':
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    elif mode == 'GRAY':
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    else:
+        raise ValueError("Unsupported mode: {}".format(mode))
+    return Image.fromarray(img)
+
+if USE_PREFETCH:
+    class DataLoaderX(torch.utils.data.DataLoader):
+        def __iter__(self):
+            return BackgroundGenerator(super().__iter__(), max_prefetch=32)
+else:
+    DataLoaderX = torch.utils.data.DataLoader
 
 class MonoDataset(data.Dataset):
-    """Superclass for monocular dataloaders
-
-    Args:
-        data_path
-        filenames
-        height
-        width
-        frame_idxs
-        num_scales
-        is_train
-        img_ext
-    """
+    """Superclass for monocular dataloaders with prefetch support"""
     def __init__(self,
                  data_path,
                  filenames,
@@ -36,6 +46,8 @@ class MonoDataset(data.Dataset):
                  width,
                  frame_idxs,
                  num_scales,
+                 min_depth=1e-3,
+                 max_depth=150,
                  is_train=False,
                  img_ext='.png'):
         super(MonoDataset, self).__init__()
@@ -45,36 +57,38 @@ class MonoDataset(data.Dataset):
         self.height = height
         self.width = width
         self.num_scales = num_scales
-        # self.interp = Image.ANTIALIAS
         self.interp = Image.LANCZOS
-
         self.frame_idxs = frame_idxs
-
         self.is_train = is_train
         self.img_ext = img_ext
-
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
+        self.min_depth = min_depth
+        self.max_depth = max_depth
 
-        # We need to specify augmentations differently in newer versions of torchvision.
-        # We first try the newer tuple version; if this fails we fall back to scalars
+        # Color augmentation parameters
         try:
             self.brightness = (0.8, 1.2)
             self.contrast = (0.8, 1.2)
             self.saturation = (0.8, 1.2)
             self.hue = (-0.1, 0.1)
-            transforms.transforms.ColorJitter(self.brightness,self.contrast,self.saturation,self.hue)
+            transforms.transforms.ColorJitter(
+                self.brightness, self.contrast, self.saturation, self.hue)
         except TypeError:
             self.brightness = 0.2
             self.contrast = 0.2
             self.saturation = 0.2
             self.hue = 0.1
 
+        # Initialize resize transforms
         self.resize = {}
         for i in range(self.num_scales):
             s = 2 ** i
-            self.resize[i] = transforms.Resize((self.height // s, self.width // s),
-                                               interpolation=self.interp)
+            self.resize[i] = transforms.Resize(
+                (self.height // s, self.width // s),
+                interpolation=self.interp
+            )
+        
         self.load_depth = self.check_depth()
 
     def preprocess(self, inputs, color_aug):
@@ -97,6 +111,11 @@ class MonoDataset(data.Dataset):
                 n, im, i = k
                 inputs[(n, im, i)] = self.to_tensor(f)
                 inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
+
+    def preprocess_depth(self, inputs):
+        if "depth_gt" in inputs.keys():
+            depth_gt = inputs["depth_gt"]
+            inputs["depth_gt"] = self.resize[0](depth_gt)
 
     def __len__(self):
         return len(self.filenames)
@@ -137,7 +156,9 @@ class MonoDataset(data.Dataset):
 
         inputs["sequence"] = torch.from_numpy(np.array(int(sequence)))
         inputs["keyframe"] = torch.from_numpy(np.array(int(keyframe)))
-
+        
+        inputs["min_depth"] = torch.from_numpy(np.array(self.min_depth))
+        inputs["max_depth"] = torch.from_numpy(np.array(self.max_depth))
         if len(line) == 3:
             frame_index = int(line[1])
         else:
@@ -179,9 +200,14 @@ class MonoDataset(data.Dataset):
             del inputs[("color_aug", i, -1)]
 
         if self.load_depth:
-            depth_gt = self.get_depth(folder, frame_index, side, do_flip)
-            inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
-            inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"].astype(np.float32))
+            try:
+                depth_gt = self.get_depth(folder, frame_index, side, do_flip)
+                self.preprocess_depth(inputs)
+                inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
+                inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"])
+            except FileNotFoundError:
+                print(f'Warning: missing depth map for {folder} {frame_index} {side}')
+                pass
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
@@ -201,21 +227,21 @@ class MonoDataset(data.Dataset):
     def get_depth(self, folder, frame_index, side, do_flip):
         raise NotImplementedError
 
-class SCAREDDataset(MonoDataset):
-    def __init__(self, *args, **kwargs):
-        super(SCAREDDataset, self).__init__(*args, **kwargs)
-
+class SCAREDRAWDataset(MonoDataset):
+    def __init__(self, *args, load_depth=False, depth_rescale_factor=1, **kwargs):
+        self.load_depth = load_depth
+        self.depth_rescale_factor = depth_rescale_factor
+        super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
         self.K = np.array([[0.82, 0, 0.5, 0],
-                           [0, 1.02, 0.5, 0],
-                           [0, 0, 1, 0],
-                           [0, 0, 0, 1]], dtype=np.float32)
-
-        # self.full_res_shape = (1280, 1024)
+                          [0, 1.02, 0.5, 0],
+                          [0, 0, 1, 0],
+                          [0, 0, 0, 1]], dtype=np.float32)
         self.side_map = {"2": 2, "3": 3, "l": 2, "r": 3}
+        
+        
 
     def check_depth(self):
-        
-        return False
+        return self.load_depth
 
     def get_color(self, folder, frame_index, side, do_flip):
         image_path = self.get_image_path(folder, frame_index, side)
@@ -230,41 +256,31 @@ class SCAREDDataset(MonoDataset):
 
         return color
 
-
-class SCAREDRAWDataset(SCAREDDataset):
-    def __init__(self, *args, **kwargs):
-        super(SCAREDRAWDataset, self).__init__(*args, **kwargs)
-
     def get_image_path(self, folder, frame_index, side):
         f_str = "{:010d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
             self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
 
         return image_path
-
+    
     def get_depth(self, folder, frame_index, side, do_flip):
-        f_str = "scene_points{:06d}.tiff".format(frame_index-1)
-
+        f_str = "{:010d}{}".format(frame_index, self.img_ext)
         depth_path = os.path.join(
-            self.data_path,
-            folder,
-            "image_0{}/data/groundtruth".format(self.side_map[side]),
-            f_str)
+            self.data_path, folder, "depth_0{}/data".format(self.side_map[side]), f_str)
 
-        depth_gt = cv2.imread(depth_path, 3)
-        depth_gt = depth_gt[:, :, 0]
-        depth_gt = depth_gt[0:1024, :]
+        depth_gt = self.loader(depth_path, mode='GRAY')
+        depth_gt = np.array(depth_gt).astype(np.float32)
         if do_flip:
             depth_gt = np.fliplr(depth_gt)
 
-        return depth_gt
+        return depth_gt * self.depth_rescale_factor
 
     
 
 if __name__ == "__main__":
 
-    fpath = 'C:\\Users\\14152\\ZCH\\Dev\\datasets\\SCARED_Images_Resized'
-    split_file = os.path.join(fpath, 'splits\\train_files.txt')
+    fpath = '/mnt/c/Users/14152/ZCH/Dev/datasets/C3VD_as_SCARED'
+    split_file = '/mnt/c/Users/14152/ZCH/Dev/datasets/all_splits/c3vd/train_files.txt'
     ds_filenames = [line.rstrip() for line in open(split_file).readlines()]
     dataset = SCAREDRAWDataset(
         data_path=fpath, # file path
@@ -274,8 +290,27 @@ if __name__ == "__main__":
         width=320,
         num_scales=4, # rescale factor for image pyramid
         is_train=True,
-        img_ext='.png'
+        img_ext='.png',
+        load_depth=True,
+        depth_rescale_factor=100 / 65535
     )
 
     print(len(dataset))
     print(dataset[0].keys())
+
+    import matplotlib.pyplot as plt
+
+    # Display the color image
+    color_image = dataset[0][('color', 0, 0)].permute(1, 2, 0).numpy()
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.title("Color Image")
+    plt.imshow(color_image)
+
+    # Display the depth map
+    depth_map = dataset[0]['depth_gt'].squeeze().numpy()
+    plt.subplot(1, 2, 2)
+    plt.title("Depth Map")
+    plt.imshow(depth_map, cmap='gray')
+
+    plt.show()

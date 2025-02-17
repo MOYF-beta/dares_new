@@ -16,11 +16,17 @@ def disp_to_depth(disp, min_depth, max_depth):
     The formula for this conversion is given in the 'additional considerations'
     section of the paper.
     """
-    min_disp = 1 / max_depth
-    max_disp = 1 / min_depth
-    scaled_disp = min_disp + (max_disp - min_disp) * disp
-    depth = 1 / scaled_disp
-    return scaled_disp, depth
+    scaled_disps = torch.zeros_like(disp)
+    depths = torch.zeros_like(disp)
+    for i in range(disp.shape[0]):
+        disp[i] = min_depth[i] + (max_depth[i] - min_depth[i]) * disp[i]
+        min_disp = 1 / max_depth[i]
+        max_disp = 1 / min_depth[i]
+        scaled_disp = min_disp + (max_disp - min_disp) * disp[i]
+        depth = 1 / scaled_disp
+        scaled_disps[i] = scaled_disp
+        depths[i] = depth
+    return scaled_disps, depths
 
 
 def transformation_from_parameters(axisangle, translation, invert=False):
