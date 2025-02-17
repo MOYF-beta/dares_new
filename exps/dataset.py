@@ -7,8 +7,7 @@ import cv2
 import torch
 import torch.utils.data as data
 from torchvision import transforms
-from prefetch_generator import BackgroundGenerator
-USE_PREFETCH = False
+DataLoaderX = torch.utils.data.DataLoader
 
 def pil_loader(path, mode='RGB'):
     with open(path, 'rb') as f:
@@ -30,12 +29,7 @@ def opencv_loader(path, mode = 'RGB'):
         raise ValueError("Unsupported mode: {}".format(mode))
     return Image.fromarray(img)
 
-if USE_PREFETCH:
-    class DataLoaderX(torch.utils.data.DataLoader):
-        def __iter__(self):
-            return BackgroundGenerator(super().__iter__(), max_prefetch=32)
-else:
-    DataLoaderX = torch.utils.data.DataLoader
+    
 
 class MonoDataset(data.Dataset):
     """Superclass for monocular dataloaders with prefetch support"""
