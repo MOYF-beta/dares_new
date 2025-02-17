@@ -20,7 +20,11 @@ class Trainer(ABC):
         pass
 
     def __init__(self, model_name, log_dir, options, train_eval_ds={},
-                  pretrained_root_dir=None, merge_val_as_train=False, multi_gpu=False):
+                  pretrained_root_dir=None, merge_val_as_train=False, debug = False):
+        if debug:
+            print("\033[91m WARNING: Debug mode activated, only train 1 epoch\033[0m")
+            options.num_epochs = 1
+            options.batch_size = 8
         self.opt = options
         self.log_path = os.path.join(log_dir, model_name)
 

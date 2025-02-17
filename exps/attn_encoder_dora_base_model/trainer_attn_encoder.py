@@ -57,6 +57,8 @@ class TrainerAttnEncoder(Trainer):
                     print(f"\033[94mLoaded pretrained weights for {model_name} from {model_path}\033[0m")
                 else:
                     print(f"\033[93mNo pretrained weights found for {model_name} at {model_path}\033[0m")
+        
+        print(f'training on {torch.cuda.device_count()} GPUs')
     
     def get_depth_input(self, inputs):
         return inputs['color_aug', 0, 0]

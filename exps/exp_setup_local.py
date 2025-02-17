@@ -167,7 +167,7 @@ ds_train_hamlyn = SCAREDRAWDataset(
 
 ds_test_hamlyn = SCAREDRAWDataset(
     data_path=ds_path,
-    filenames=test_filenames,
+    filenames=test_filenames[:int(hamlyn_ratio * len(train_filenames))],
     frame_idxs=[0],
     height=DefaultOpt.height,
     width=DefaultOpt.width,

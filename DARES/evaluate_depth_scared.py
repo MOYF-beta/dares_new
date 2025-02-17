@@ -194,7 +194,7 @@ def evaluate(opt, ds_and_model = {}, load_depth_from_npz = False):
 
     mean_errors = np.array(errors).mean(0)
 
-    print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
+    print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\", end='')
     return mean_errors
 
 
