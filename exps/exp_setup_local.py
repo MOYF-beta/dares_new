@@ -149,9 +149,12 @@ splits_dir = os.path.join(ds_base, 'hamlyn_as_SCARED', 'splits')
 split_train = os.path.join(ds_path, 'splits/train_files.txt')
 split_test = os.path.join(ds_path, 'splits/test_files.txt')
 train_filenames = readlines(split_train)
+random.shuffle(train_filenames)
+test_filenames = readlines(split_test)
+random.shuffle(test_filenames)
 test_filenames = readlines(split_test)
 
-hamlyn_ratio = 0.3
+hamlyn_ratio = 0.05
 ds_train_hamlyn = SCAREDRAWDataset(
     data_path=ds_path,
     filenames=train_filenames[:int(hamlyn_ratio * len(train_filenames))],
@@ -241,7 +244,7 @@ ds_test_syntheticcolon = SCAREDRAWDataset(
     img_ext='.png'
 )
 ds_base_model_train = torch.utils.data.ConcatDataset([
-    ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_syntheticcolon])
+    ds_train,ds_train_c3vd, ds_train_syntheticcolon])# ds_train_hamlyn
 
 def check_ds():
     from tqdm import tqdm

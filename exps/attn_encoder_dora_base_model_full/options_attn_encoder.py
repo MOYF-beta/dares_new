@@ -23,8 +23,8 @@ DefaultOpt_dict = {
         # OPTIMIZATION options
         "batch_size": 12,
         "learning_rate": 1e-4,
-        "weight_decay": 1e-3,
-        "weight_decay_pose" : 1e-4,
+        "weight_decay": 1e-6,
+        "weight_decay_pose" : 1e-6,
         "pos_learning_rate": 1e-4,
         "num_epochs": 100,
         "scheduler_step_size": 25,

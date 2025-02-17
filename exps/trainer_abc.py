@@ -1,15 +1,29 @@
 import json
 import os
+import random
 import time
 
 import torch
 import torch.optim as optim
 from exps.dataset import DataLoaderX as DataLoader
+from torch.utils.data import RandomSampler, Sampler
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 from DARES.layers import *
 from DARES.utils import *
 
+
+class GlobalRandomSampler(Sampler):
+    def __init__(self, data_source):
+        self.data_source = data_source
+
+    def __iter__(self):
+        indices = list(range(len(self.data_source)))
+        random.shuffle(indices)
+        return iter(indices)
+
+    def __len__(self):
+        return len(self.data_source)
 
 from exps.exp_setup_local import device
 from abc import ABC, abstractmethod
@@ -52,22 +66,23 @@ class Trainer(ABC):
         train_dataset = train_eval_ds["train"]
         val_dataset = train_eval_ds["val"]
         
-        
+        random_sampler = GlobalRandomSampler(train_eval_ds['train'])
         if merge_val_as_train:
             print("\033[91m WARNING: Merging validation dataset into training dataset\033[0m")
             combined_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
             self.train_loader = DataLoader(
-            combined_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            combined_dataset, self.opt.batch_size,
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=random_sampler)
         else:
             self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            train_dataset, self.opt.batch_size,
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=random_sampler)
             self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
             self.val_iter = iter(self.val_loader)
-            
+
+        
         num_train_samples = len(train_eval_ds['train'])
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
         self.writers = {}
