@@ -10,7 +10,7 @@ from exps.exp_setup_local import (ds_val, check_test_only, get_unique_name, log_
 from exps.find_best import find_best
 
 opt = AttnEncoderOpt
-model_name = 'base_model_attn_encoder_dora'
+model_name = 'base_model'
 pretrained_root_dir = './DARES/af_sfmlearner_weights'
 if __name__ == "__main__":
     if not check_test_only():

@@ -42,7 +42,7 @@ class DARES(nn.Module):
                  enable_refine_net=False, 
                  num_blocks=4, 
                  feat_channels=64,
-                 use_dora=False):  # 添加use_dora参数
+                 use_dora=False, full_finetune = False):  # 添加use_dora参数
         super(DARES, self).__init__()
         
         # Load base model
@@ -66,7 +66,7 @@ class DARES(nn.Module):
         
         # Freeze base model parameters
         for param in self.backbone.parameters():
-            param.requires_grad = False
+            param.requires_grad = full_finetune
             
         # Unfreeze LoRA/DoRA parameters
         for name, param in self.backbone.named_parameters():
