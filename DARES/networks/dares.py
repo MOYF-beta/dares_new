@@ -116,7 +116,7 @@ class LoRAInitializer:
 
 class DARES(nn.Module):
     def __init__(self, r = [14,14,12,12,10,10,8,8,8,8,8,8], lora = ['q', 'v'], pretrained_path=None, 
-                 enable_refine_net=False, num_blocks=4, feat_channels=64):
+                 enable_refine_net=False, num_blocks=4, feat_channels=64, full_finetune=False):
         super(DARES, self).__init__()
         model = DepthAnythingForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Small-hf")
         self.r = r
@@ -126,6 +126,9 @@ class DARES(nn.Module):
 
         # Initialize LoRA parameters
         self.lora_initializer = LoRAInitializer(model, r, lora)
+        if full_finetune:
+            for param in self.backbone.parameters():
+                param.requires_grad = True
         if pretrained_path is not None:
             state_dict = torch.load(pretrained_path,weights_only=True)
             model.load_state_dict(state_dict, strict=False)

@@ -100,7 +100,7 @@ def find_best(model_type, model_name, only_keep_best=False, ds_name='SCARED', da
 
     # Handle best weight file
     best_weight_path = os.path.join(model_path, best_weight)
-    best_dir = os.path.join(model_path, 'best')
+    best_dir = os.path.join(model_path, f'best_{ds_name}')
 
     if only_keep_best:
         # Remove all other weights

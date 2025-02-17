@@ -11,7 +11,7 @@ class TrainerAttnEncoder(Trainer):
     def load_model(self):
         # Initialize depth model
         encoders = {
-            "depth_model": DARES(use_dora=True,target_modules=['query', 'value']),
+            "depth_model": DARES(use_dora=True,target_modules=['query', 'value'], full_finetune=True),
             "pose_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
             "position_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
             "transform_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)

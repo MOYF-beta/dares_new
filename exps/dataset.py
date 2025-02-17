@@ -40,7 +40,7 @@ class MonoDataset(data.Dataset):
                  width,
                  frame_idxs,
                  num_scales,
-                 min_depth=1e-3,
+                 min_depth=1e-2,
                  max_depth=150,
                  is_train=False,
                  img_ext='.png'):

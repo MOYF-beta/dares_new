@@ -240,7 +240,8 @@ ds_test_syntheticcolon = SCAREDRAWDataset(
     depth_rescale_factor= 20 / 65535,
     img_ext='.png'
 )
-ds_base_model_train = torch.utils.data.ConcatDataset([ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_syntheticcolon])
+ds_base_model_train = torch.utils.data.ConcatDataset([
+    ds_train, ds_train_c3vd, ds_train_hamlyn, ds_train_syntheticcolon])
 
 def check_ds():
     from tqdm import tqdm
