@@ -15,7 +15,7 @@ def pil_loader(path, mode='RGB'):
             if mode == 'RGB':
                 return img.convert('RGB')
             elif mode == 'GRAY':
-                return img.convert('L')
+                return img.convert('I;16')
             else:
                 raise ValueError("Unsupported mode: {}".format(mode))
 
@@ -243,7 +243,6 @@ class SCAREDRAWDataset(MonoDataset):
             frame_index = 0
             image_path = self.get_image_path(folder, frame_index, side)
         color = self.loader(image_path)
-        
         if do_flip:
             import PIL.Image as pil
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
@@ -286,7 +285,7 @@ if __name__ == "__main__":
         is_train=True,
         img_ext='.png',
         load_depth=True,
-        depth_rescale_factor=100 / 65535
+        depth_rescale_factor=100 / 255
     )
 
     print(len(dataset))

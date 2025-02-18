@@ -42,6 +42,10 @@ def load_DARES(opt, weight_path=None, pth_name='depth_model.pth', refine=True, p
         for k in list(depth_model_dict.keys()):
             if 'module.' in k:
                 depth_model_dict[k.replace('module.', '')] = depth_model_dict.pop(k)
+        for k in list(depth_model_dict.keys()):
+            if '.default' in k and '.default.weight' not in k:
+                depth_model_dict[k.replace('.default', '.default.weight')] = depth_model_dict.pop(k)
+
         depth_model.load_state_dict(depth_model_dict)
     else:
         model_dict = depth_model.state_dict()

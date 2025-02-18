@@ -124,7 +124,7 @@ ds_train_c3vd = SCAREDRAWDataset(
     height=DefaultOpt.height,
     width=DefaultOpt.width,
     min_depth=0.1,
-    max_depth=100,
+    max_depth=150,
     num_scales=4,
     is_train=True,
     img_ext='.png'
@@ -136,9 +136,9 @@ ds_test_c3vd = SCAREDRAWDataset(
     height=DefaultOpt.height,
     width=DefaultOpt.width,
     num_scales=1,
-    depth_rescale_factor = 100 / 65535,
+    depth_rescale_factor = 150 / 65535,
     min_depth=0.1,
-    max_depth=100,
+    max_depth=150,
     is_train=False,
     load_depth=True,
     img_ext='.png'
@@ -224,7 +224,7 @@ ds_train_syntheticcolon = SCAREDRAWDataset(
     height=DefaultOpt.height,
     width=DefaultOpt.width,
     min_depth=0.1,
-    max_depth=20,
+    max_depth=150,
     num_scales=4,
     is_train=True,
     img_ext='.png'
@@ -239,12 +239,12 @@ ds_test_syntheticcolon = SCAREDRAWDataset(
     is_train=False,
     load_depth=True,
     min_depth=0.1,
-    max_depth=20,
-    depth_rescale_factor= 20 / 65535,
+    max_depth=150,
+    depth_rescale_factor= 150 / 65535,
     img_ext='.png'
 )
 ds_base_model_train = torch.utils.data.ConcatDataset([
-    ds_train,ds_train_c3vd, ds_train_syntheticcolon])# ds_train_hamlyn
+    ds_train,ds_train_c3vd, ds_train_syntheticcolon, ds_train_hamlyn])# 
 
 def check_ds():
     from tqdm import tqdm
@@ -261,7 +261,7 @@ def check_ds():
     print(f"Test PitVis: {len(ds_test_pitvis)}")
     print(f"Train SyntheticColon: {len(ds_train_syntheticcolon)}")
     print(f"Test SyntheticColon: {len(ds_test_syntheticcolon)}")
-    ds_to_check = [ds_train_c3vd, ds_test_c3vd, ds_train_hamlyn, ds_test_hamlyn, ds_train_syntheticcolon, ds_test_syntheticcolon]
+    ds_to_check = [ds_test_syntheticcolon]
     for ds in ds_to_check:
         for i in tqdm(range(len(ds)), desc=f"Checking dataset {ds}"):
             try:

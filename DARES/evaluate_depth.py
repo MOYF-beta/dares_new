@@ -37,13 +37,16 @@ def batch_post_process_disparity(l_disp, r_disp):
     r_mask = l_mask[:, :, ::-1]
     return r_mask * l_disp + l_mask * r_disp + (1.0 - l_mask - r_mask) * m_disp
 
+show_img_countdown = 10
 
-def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False):
+def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
+             show_images = True, auto_scale = True):
     """Evaluates a pretrained model using a specified test set
     """
+    global show_img_countdown
     dataloader = ds_and_model['dataloader']
     depth_model = ds_and_model['depth_model']
-
+    
     errors = []
     ratios = []
 
@@ -84,13 +87,47 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                 mask = mask.squeeze(1)
             pred_depth = pred_depth[mask]
 
-            pred_depth *= opt.pred_depth_scale_factor
-            if not opt.disable_median_scaling:
-                ratio = torch.median(gt_depth) / torch.median(pred_depth)
-                ratios.append(ratio)
-                pred_depth *= ratio
+            
+            if auto_scale:
+                # Automatically compute the optimal scaling factor using mean scaling
+                scale = torch.mean(1/gt_depth[gt_depth > 0]) / torch.mean(1/pred_depth[gt_depth > 0])
+                pred_depth /= scale
+            else:
+                pred_depth *= opt.pred_depth_scale_factor
+                if not opt.disable_median_scaling:
+                    ratio = torch.median(gt_depth) / torch.median(pred_depth)
+                    ratios.append(ratio)
+                    pred_depth *= ratio
 
             pred_depth = torch.clamp(pred_depth, min=min_depth[0], max=max_depth[0])
+
+            if show_images and show_img_countdown > 0:
+                import matplotlib.pyplot as plt
+                show_img_countdown -= 1
+                plt.figure(figsize=(10, 10))
+                plt.subplot(2, 2, 1)
+                plt.imshow(input_color[0].cpu().numpy().transpose(1, 2, 0))
+                plt.title("Input Image")
+                
+                gt_depth_img = torch.zeros_like(mask, dtype=torch.float32)
+                gt_depth_img[mask] = gt_depth
+                plt.subplot(2, 2, 2)
+                plt.imshow(gt_depth_img[0].cpu().numpy())
+                plt.title("Ground Truth Depth")
+                
+                pred_depth_img = torch.zeros_like(mask, dtype=torch.float32)
+                pred_depth_img[mask] = pred_depth
+                plt.subplot(2, 2, 3)
+                plt.imshow(pred_depth_img[0].cpu().numpy())
+                plt.title("Predicted Depth")
+                
+                error_img = torch.zeros_like(mask, dtype=torch.float32)
+                error_img[mask] = (gt_depth - pred_depth).abs()
+                plt.subplot(2, 2, 4)
+                plt.imshow(error_img[0].cpu().numpy())
+                plt.title("Error")
+                
+                plt.show()
 
             errors.append(compute_errors(gt_depth, pred_depth))
 

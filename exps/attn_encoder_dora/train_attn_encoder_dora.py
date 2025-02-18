@@ -18,7 +18,7 @@ if __name__ == "__main__":
     #                       train_eval_ds={'train': ds_train, 'val': ds_val},
     #                       pretrained_root_dir=pretrained_root_dir)
     #     trainer.train()
-    find_best('DARES_peft', model_name, dataset=ds_test, ds_name='SCARED')
+    # find_best('DARES_peft', model_name, dataset=ds_test, ds_name='SCARED')
     find_best('DARES_peft', model_name, dataset=ds_test_c3vd, ds_name='C3VD')
     find_best('DARES_peft', model_name, dataset=ds_test_hamlyn, ds_name='Hamlyn')
     find_best('DARES_peft', model_name, dataset=ds_test_syntheticcolon, ds_name='SyntheticColon')
