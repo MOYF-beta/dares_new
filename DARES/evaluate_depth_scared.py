@@ -58,7 +58,7 @@ def batch_post_process_disparity(l_disp, r_disp):
 show_img_countdown = 5
 
 def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
-             show_images = True, auto_scale = True):
+             show_images = False, auto_scale = True):
     """Evaluates a pretrained model using a specified test set
     """
     global show_img_countdown
@@ -237,7 +237,7 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
             plt.imshow(error_img)
             plt.title("Error")
             
-            plt.show()
+            plt.savefig('./depth_eval_' + str(show_img_countdown) + '.png')
 
         errors.append(compute_errors(gt_depth, pred_depth))
 

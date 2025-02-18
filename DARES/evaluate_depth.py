@@ -126,8 +126,7 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                 plt.subplot(2, 2, 4)
                 plt.imshow(error_img[0].cpu().numpy())
                 plt.title("Error")
-                
-                plt.show()
+                plt.savefig('./depth_eval_' + str(show_img_countdown) + '.png')
 
             errors.append(compute_errors(gt_depth, pred_depth))
 
