@@ -25,7 +25,7 @@ DefaultOpt_dict = {
         "learning_rate": 1e-5,
         "weight_decay": 1e-6,
         "weight_decay_pose" : 1e-6,
-        "pos_learning_rate": 1e-4,
+        "pos_learning_rate": 1e-5,
         "num_epochs": 40,
         "scheduler_step_size": 25,
 
