@@ -42,7 +42,7 @@ class DARES(nn.Module):
                  enable_refine_net=False, 
                  num_blocks=4, 
                  feat_channels=64,
-                 use_dora=False, full_finetune = False):  # 添加use_dora参数
+                 use_dora=True, full_finetune = False):  # 添加use_dora参数
         super(DARES, self).__init__()
         
         # Load base model

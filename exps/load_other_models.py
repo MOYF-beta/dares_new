@@ -38,8 +38,14 @@ def load_DARES(opt, weight_path=None, pth_name='depth_model.pth', refine=True, p
         depth_model_path = os.path.join(weight_path, 'depth.pth')
     depth_model_dict = torch.load(depth_model_path)
     depth_model = DARES(enable_refine_net=refine)
-    model_dict = depth_model.state_dict()
-    depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
+    if peft:
+        for k in list(depth_model_dict.keys()):
+            if 'module.' in k:
+                depth_model_dict[k.replace('module.', '')] = depth_model_dict.pop(k)
+        depth_model.load_state_dict(depth_model_dict)
+    else:
+        model_dict = depth_model.state_dict()
+        depth_model.load_state_dict({k: v for k, v in depth_model_dict.items() if k in model_dict})
     depth_model.cuda()
     depth_model.eval()
 

@@ -24,6 +24,11 @@ STEREO_SCALE_FACTOR = 5.4
 def compute_errors(gt, pred):
     """Computation of error metrics between predicted and ground truth depths
     """
+    # Remove nan values
+    valid_mask = np.isfinite(gt) & np.isfinite(pred)
+    gt = gt[valid_mask]
+    pred = pred[valid_mask]
+
     thresh = np.maximum((gt / pred), (pred / gt))
     a1 = (thresh < 1.25     ).mean()
     a2 = (thresh < 1.25 ** 2).mean()

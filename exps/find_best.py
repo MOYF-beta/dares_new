@@ -116,6 +116,11 @@ def find_best(model_type, model_name, only_keep_best=False, ds_name='SCARED', da
 
     # Output best weights and scores to a file
     result_file = os.path.join(model_path, 'best_results.txt')
+    # Create the file if it does not exist
+    if not os.path.exists(result_file):
+        with open(result_file, 'w') as f:
+            f.write('Best weight results:\n')
+
     with open(result_file, 'a') as f:
         f.write(f'Best weight path: {best_weight} for dataset {ds_name}\n')
         f.write('| Method        | abs_rel | sq_rel | rmse   | rmse_log | a1    | a2    | a3    |\n')
