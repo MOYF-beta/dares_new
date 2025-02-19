@@ -25,6 +25,39 @@ class GlobalRandomSampler(Sampler):
     def __len__(self):
         return len(self.data_source)
 
+class ConcatDatasetSampler(Sampler):
+    def __init__(self, dataset):
+        if isinstance(dataset, torch.utils.data.ConcatDataset):
+            self.concat_dataset = dataset
+            self.cumulative_sizes = dataset.cumulative_sizes
+            print(f'cumulative_sizes: {self.cumulative_sizes}')
+        else:
+            self.concat_dataset = None
+            self.dataset = dataset
+            print("\033[91m WARNING: Dataset is not a ConcatDataset, using GlobalRandomSampler instead.\033[0m")
+
+    def __iter__(self):
+        if self.concat_dataset:
+            indices = []
+            start = 0
+            for end in self.cumulative_sizes:
+                dataset_len = end - start
+                perm = torch.randperm(dataset_len).tolist()
+                global_perm = [p + start for p in perm]
+                indices.extend(global_perm)
+                start = end
+            return iter(indices)
+        else:
+            indices = list(range(len(self.dataset)))
+            random.shuffle(indices)
+            return iter(indices)
+
+    def __len__(self):
+        if self.concat_dataset:
+            return len(self.concat_dataset)
+        else:
+            return len(self.dataset)
+    
 from exps.exp_setup_local import device
 from abc import ABC, abstractmethod
 class Trainer(ABC):
@@ -66,17 +99,20 @@ class Trainer(ABC):
         train_dataset = train_eval_ds["train"]
         val_dataset = train_eval_ds["val"]
         
-        random_sampler = GlobalRandomSampler(train_eval_ds['train'])
+        if 'train_sampler' in train_eval_ds:
+            train_sampler = train_eval_ds['train_sampler'](train_dataset)
+        else:
+            train_sampler = GlobalRandomSampler(train_dataset)
         if merge_val_as_train:
             print("\033[91m WARNING: Merging validation dataset into training dataset\033[0m")
             combined_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
             self.train_loader = DataLoader(
             combined_dataset, self.opt.batch_size,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=random_sampler)
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
         else:
             self.train_loader = DataLoader(
             train_dataset, self.opt.batch_size,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=random_sampler)
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
             self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, False,
             num_workers=1, pin_memory=True, drop_last=True)
