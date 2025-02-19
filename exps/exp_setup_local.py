@@ -15,7 +15,7 @@ log_path = './logs'
 platform = 'local' if os.getcwd().startswith('/mnt') else 'cluster'
 ds_base = '/mnt/c/Users/14152/ZCH/Dev/datasets' if platform == 'local' else '/cluster/project7/Llava_2024/changhao/datasets'
 
-device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 if 'cuda' in device:
     torch.backends.cudnn.benchmark = True
 def check_test_only():
