@@ -83,7 +83,7 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
             pred_disp = torch.stack([torch.nn.functional.interpolate(d.unsqueeze(0).unsqueeze(0), size=(gt_height, gt_width), mode='bilinear', align_corners=False).squeeze() for d in pred_disp])
             pred_depth = 1 / pred_disp
 
-            mask = (gt_depth > min_depth[0]) & (gt_depth < max_depth[0])
+            mask = (gt_depth > MIN_DEPTH) & (gt_depth < MAX_DEPTH)
             gt_depth = gt_depth[mask]
             if len(mask.shape) == 4:
                 mask = mask.squeeze(1)
@@ -101,7 +101,7 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                     ratios.append(ratio)
                     pred_depth *= ratio
 
-            pred_depth = torch.clamp(pred_depth, min=min_depth[0], max=max_depth[0])
+            pred_depth = torch.clamp(pred_depth, min=MIN_DEPTH, max=MAX_DEPTH)
 
             if show_images and show_img_countdown > 0:
                 import matplotlib.pyplot as plt
