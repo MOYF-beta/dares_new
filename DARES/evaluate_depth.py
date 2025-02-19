@@ -66,9 +66,11 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                 input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
             output = depth_model(input_color)
-            min_depth = data['min_depth'].cuda()
-            max_depth = data['max_depth'].cuda()
-            pred_disp, _ = disp_to_depth(output[("disp", 0)], min_depth, max_depth)
+            # min_depth = data['min_depth'].cuda()
+            # max_depth = data['max_depth'].cuda()
+            MIN_DEPTH = 1e-3
+            MAX_DEPTH = 150
+            pred_disp, _ = disp_to_depth(output[("disp", 0)], MIN_DEPTH, MAX_DEPTH)
             pred_disp = pred_disp[:, 0]
 
             if opt.post_process:
