@@ -45,7 +45,7 @@ def get_unique_name(name):
         counter += 1
     return unique_name
 
-random_seeds(233)
+random_seeds(42)
 
 """SCARED DATASET SETUP"""
 ds_path = os.path.join(ds_base, 'SCARED_Images_Resized')

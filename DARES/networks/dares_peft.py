@@ -78,6 +78,8 @@ class DARES(nn.Module):
             base_model.load_state_dict(state_dict, strict=False)
             
         self.neck = base_model.neck
+        for param in self.neck.parameters():
+            param.requires_grad = full_finetune
         model_head = base_model.head
         self.head = DepthAnythingDepthEstimationHead(model_head)
         

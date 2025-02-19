@@ -3,3 +3,5 @@
 *.err
 *.log
 logs/
+*.png
+*.sh
