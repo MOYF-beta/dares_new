@@ -242,6 +242,7 @@ class SCAREDRAWDataset(MonoDataset):
         if not os.path.exists(image_path):
             frame_index = 0
             image_path = self.get_image_path(folder, frame_index, side)
+            # print(f'Warning: missing image for {folder} {frame_index} {side}')
         color = self.loader(image_path)
         if do_flip:
             import PIL.Image as pil

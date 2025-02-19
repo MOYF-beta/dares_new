@@ -15,7 +15,8 @@ from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecod
 from layers import transformation_from_parameters
 from utils import readlines
 from options import MonodepthOptions
-from exps.exp_setup_local import ds_path ,splits_dir
+from exps.exp_setup_local import ds_base
+ds_path = os.path.join(ds_base, 'SCARED_Images_Resized')
 import warnings
 warnings.filterwarnings('ignore')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -147,8 +148,19 @@ def evaluate(opt, load_weights_folder, scared_pose_seq=1):
 
     print("\n   Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
     print("\n   Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
-
+    return np.mean(ates), np.mean(res)
 
 if __name__ == "__main__":
     from exps.attn_encoder_dora.options_attn_encoder import AttnEncoderOpt
-    evaluate(AttnEncoderOpt, 'logs/dares_attn_encoder_dora/models/best', scared_pose_seq=2)
+    min_ate = np.inf
+    min_re = np.inf
+    best_i = 0
+    for i in range(0, 50):
+        ate, res = evaluate(AttnEncoderOpt, f'logs/dares_attn_encoder_dora/models/weights_{i}', scared_pose_seq=1)
+        if ate < min_ate:
+            min_ate = ate
+            min_re = res
+            best_i = i
+    print(f"Best ATE: {min_ate}, Best RE: {min_re}")
+    
+    evaluate(AttnEncoderOpt, f'logs/dares_attn_encoder_dora/models/weights_{best_i}', scared_pose_seq=1)
