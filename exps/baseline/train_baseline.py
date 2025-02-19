@@ -11,9 +11,9 @@ opt = BaselineOpt
 model_name = 'baseline'
 pretrained_root_dir = './DARES/af_sfmlearner_weights'
 if __name__ == "__main__":
-    if not check_test_only():
-        trainer = TrainerBaseline(model_name, log_path, opt, 
-                          train_eval_ds={'train': ds_train, 'val': ds_val},
-                          pretrained_root_dir=pretrained_root_dir)
-        trainer.train()
+    # if not check_test_only():
+    #     trainer = TrainerBaseline(model_name, log_path, opt, 
+    #                       train_eval_ds={'train': ds_train, 'val': ds_val},
+    #                       pretrained_root_dir=pretrained_root_dir)
+    #     trainer.train()
     find_best('DARES', model_name, only_keep_best=True)
