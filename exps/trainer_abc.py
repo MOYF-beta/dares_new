@@ -365,7 +365,6 @@ class Trainer(ABC):
         """Generate the warped (reprojected) color images for a minibatch.
         Generated images are saved into the `outputs` dictionary.
         """
-        MIN_DEPTH, MAX_DEPTH = 1e-3, 150
         for scale in self.opt.scales:
             
             disp = outputs[("disp", scale)]
@@ -375,7 +374,7 @@ class Trainer(ABC):
                 disp = F.interpolate(
                     disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=True)
             
-            _, depth = disp_to_depth(disp, MIN_DEPTH, MAX_DEPTH)
+            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
             outputs[("depth", 0, scale)] = depth
 
