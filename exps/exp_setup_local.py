@@ -154,7 +154,7 @@ test_filenames = readlines(split_test)
 random.shuffle(test_filenames)
 test_filenames = readlines(split_test)
 
-hamlyn_ratio = 0.05
+hamlyn_ratio = 0.2
 ds_train_hamlyn = SCAREDRAWDataset(
     data_path=ds_path,
     filenames=train_filenames[:int(hamlyn_ratio * len(train_filenames))],
