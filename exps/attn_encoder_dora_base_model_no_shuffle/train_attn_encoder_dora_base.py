@@ -10,7 +10,7 @@ from exps.exp_setup_local import (ds_val, check_test_only, get_unique_name, log_
 from exps.find_best import find_best
 from exps.trainer_abc import ConcatDatasetSampler
 opt = AttnEncoderOpt
-model_name = 'base_model'
+model_name = 'base_model_no_shuffle'
 pretrained_root_dir = './DARES/af_sfmlearner_weights'
 if __name__ == "__main__":
     if not check_test_only():
