@@ -140,3 +140,88 @@ class AttentionalResnetEncoder(ResnetEncoder):
             self.features.append(x)
         
         return self.features
+    
+
+class MultiHeadAttention(nn.Module):
+    """Multi-head self-attention module"""
+    def __init__(self, channels, num_heads=8, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        if channels % num_heads != 0:
+            raise ValueError(f"channels ({channels}) must be divisible by num_heads ({num_heads})")
+            
+        self.num_heads = num_heads
+        self.head_dim = channels // num_heads
+        self.scale = self.head_dim ** -0.5
+        
+        # 使用1x1卷积进行线性变换
+        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1, bias=False)
+        self.proj = nn.Conv2d(channels, channels, kernel_size=1)
+        
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj_drop = nn.Dropout(dropout)
+        
+        # 添加层归一化
+        self.norm = nn.LayerNorm([channels])
+        
+    def forward(self, x):
+        B, C, H, W = x.shape
+        
+        # 首先进行LayerNorm，注意维度转换
+        x_norm = self.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        
+        # 生成q, k, v
+        qkv = self.qkv(x_norm)
+        qkv = qkv.reshape(B, 3, self.num_heads, self.head_dim, H, W)
+        qkv = qkv.permute(1, 0, 2, 4, 5, 3)  # 3, B, num_heads, H, W, head_dim
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        # 计算注意力分数
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        
+        # 应用注意力分数
+        x = (attn @ v).permute(0, 1, 4, 2, 3).reshape(B, C, H, W)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        
+        return x
+
+
+class MultiHeadAttentionalResnetEncoder(ResnetEncoder):
+    """带多头注意力机制的ResNet编码器"""
+    def __init__(self, num_layers, pretrained, num_input_images=1, num_heads=8):
+        super(MultiHeadAttentionalResnetEncoder, self).__init__(num_layers, pretrained, num_input_images)
+        
+        # 初始化多头注意力模块列表
+        self.attentions = nn.ModuleList()
+        for ch in self.num_ch_enc[1:]:  # 从layer1到layer4的输出通道
+            self.attentions.append(MultiHeadAttention(ch, num_heads=num_heads))
+        
+        # 添加残差连接的辅助层
+        self.layer_norms = nn.ModuleList()
+        for ch in self.num_ch_enc[1:]:
+            self.layer_norms.append(nn.LayerNorm([ch]))
+
+    def forward(self, input_image):
+        self.features = []
+        x = input_image
+        
+        # 原始特征提取流程
+        x = self.encoder.conv1(x)
+        x = self.encoder.bn1(x)
+        self.features.append(self.encoder.relu(x))
+        
+        # 逐层处理并添加多头注意力
+        x = self.encoder.maxpool(self.features[-1])
+        for layer_idx in range(4):
+            layer = getattr(self.encoder, f"layer{layer_idx+1}")
+            x = layer(x)
+            
+            # 添加残差连接的多头注意力
+            attention_out = self.attentions[layer_idx](x)
+            x = x + attention_out  # 残差连接
+            
+            self.features.append(x)
+        
+        return self.features
