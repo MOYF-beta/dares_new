@@ -62,7 +62,7 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
     """Evaluates a pretrained model using a specified test set
     """
     global show_img_countdown
-    MIN_DEPTH = 1e-3
+    MIN_DEPTH = 1e-2
     MAX_DEPTH = 150
 
     saved_input_colors = []
