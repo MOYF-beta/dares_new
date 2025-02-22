@@ -67,14 +67,14 @@ class Trainer(ABC):
         pass
 
     def __init__(self, model_name, log_dir, options, train_eval_ds={},
-                  pretrained_root_dir=None, merge_val_as_train=False, debug = False):
+                  pretrained_root_dir=None, merge_val_as_train=False, use_supervised_loss = True, debug = False):
         if debug:
             print("\033[91m WARNING: Debug mode activated, only train 1 epoch\033[0m")
             options.num_epochs = 2
             options.batch_size = 8
         self.opt = options
         self.log_path = os.path.join(log_dir, model_name)
-
+        self.use_supervised_loss = use_supervised_loss
         self.models = {}  
         self.param_monodepth = []  
         self.param_pose_net = []
@@ -423,6 +423,33 @@ class Trainer(ABC):
 
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, inputs[("K", source_scale)], T)
+                
+    def compute_supervised_loss(self, inputs, outputs, debug=False):
+        if 'depth_gt' in inputs and inputs['depth_gt'].any():
+            depth_gt = inputs['depth_gt']
+        else:
+            return 0
+        depth_pred = outputs[("depth", 0, 0)] * self.opt.max_depth
+        mask = (depth_gt > self.opt.min_depth) & (depth_gt < self.opt.max_depth)
+        
+        # if debug:
+        #     import matplotlib.pyplot as plt
+        #     plt.figure(figsize=(10, 5))
+        #     plt.subplot(1, 2, 1)
+        #     plt.title("Predicted Depth")
+        #     plt.imshow(depth_pred.detach().cpu().numpy()[0, 0], cmap='plasma')
+        #     plt.colorbar()
+        #     plt.subplot(1, 2, 2)
+        #     plt.title("Ground Truth Depth")
+        #     plt.imshow(depth_gt.detach().cpu().numpy()[0, 0], cmap='plasma')
+        #     plt.colorbar()
+        #     plt.show()
+            
+        depth_pred = depth_pred[mask]
+        depth_gt = depth_gt[mask]
+
+        return nn.L1Loss()(depth_pred, depth_gt)
+        
 
     def compute_reprojection_loss(self, pred, target):
 
@@ -500,6 +527,9 @@ class Trainer(ABC):
             loss += loss_reprojection / 2.0
             loss += self.opt.disparity_smoothness * disp_smooth_loss / (2 ** scale)
 
+            # supervised loss
+            if self.use_supervised_loss:
+                loss += self.compute_supervised_loss(inputs, outputs)  * 0.001
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 

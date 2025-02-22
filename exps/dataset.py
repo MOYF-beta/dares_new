@@ -52,6 +52,7 @@ class MonoDataset(data.Dataset):
         self.width = width
         self.num_scales = num_scales
         self.interp = Image.LANCZOS
+        self.depth_interp = Image.BILINEAR
         self.frame_idxs = frame_idxs
         self.is_train = is_train
         self.img_ext = img_ext
@@ -82,6 +83,10 @@ class MonoDataset(data.Dataset):
                 (self.height // s, self.width // s),
                 interpolation=self.interp
             )
+        self.resize_depth = transforms.Resize(
+            (self.height, self.width),
+            interpolation=self.depth_interp
+        )
         
         self.load_depth = self.check_depth()
 
@@ -109,7 +114,11 @@ class MonoDataset(data.Dataset):
     def preprocess_depth(self, inputs):
         if "depth_gt" in inputs.keys():
             depth_gt = inputs["depth_gt"]
-            inputs["depth_gt"] = self.resize[0](depth_gt)
+            depth_gt = depth_gt.squeeze(0)  # Remove the channel dimension
+            depth_gt = self.resize_depth(depth_gt.unsqueeze(0))  # Resize and add the channel dimension back
+            depth_gt = depth_gt.squeeze(0)  # Remove the channel dimension again
+            depth_gt = depth_gt.unsqueeze(0)  # Add the channel dimension back
+            inputs["depth_gt"] = depth_gt
 
     def __len__(self):
         return len(self.filenames)
@@ -196,12 +205,13 @@ class MonoDataset(data.Dataset):
         if self.load_depth:
             try:
                 depth_gt = self.get_depth(folder, frame_index, side, do_flip)
-                self.preprocess_depth(inputs)
+                
                 inputs["depth_gt"] = np.expand_dims(depth_gt, 0)
                 inputs["depth_gt"] = torch.from_numpy(inputs["depth_gt"])
+                self.preprocess_depth(inputs)
             except FileNotFoundError:
-                print(f'Warning: missing depth map for {folder} {frame_index} {side}')
-                pass
+                # print(f'Warning: missing depth map for {folder} {frame_index} {side}')
+                inputs["depth_gt"] = torch.zeros(1, self.height, self.width)
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
@@ -222,7 +232,7 @@ class MonoDataset(data.Dataset):
         raise NotImplementedError
 
 class SCAREDRAWDataset(MonoDataset):
-    def __init__(self, *args, load_depth=False, depth_rescale_factor=1, **kwargs):
+    def __init__(self, *args, load_depth=False, depth_rescale_factor=1.0, **kwargs):
         self.load_depth = load_depth
         self.depth_rescale_factor = depth_rescale_factor
         super(SCAREDRAWDataset, self).__init__(*args, **kwargs)

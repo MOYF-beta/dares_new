@@ -67,6 +67,7 @@ ds_train = SCAREDRAWDataset(
     max_depth=150,
     num_scales=4,
     is_train=True,
+    load_depth=True,
     img_ext='.png'
 )
 
@@ -127,6 +128,8 @@ ds_train_c3vd = SCAREDRAWDataset(
     max_depth=150,
     num_scales=4,
     is_train=True,
+    depth_rescale_factor = 150 / 65535,
+    load_depth=True,
     img_ext='.png'
 )
 ds_test_c3vd = SCAREDRAWDataset(
@@ -164,6 +167,7 @@ ds_train_hamlyn = SCAREDRAWDataset(
     num_scales=4,
     min_depth=0.1,
     max_depth=150,
+    load_depth=True,
     is_train=True,
     img_ext='.png'
 )
@@ -226,6 +230,8 @@ ds_train_syntheticcolon = SCAREDRAWDataset(
     min_depth=0.1,
     max_depth=150,
     num_scales=4,
+    load_depth=True,
+    depth_rescale_factor = 150 / 65535,
     is_train=True,
     img_ext='.png'
 )
