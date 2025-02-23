@@ -425,7 +425,7 @@ class Trainer(ABC):
                         cam_points, inputs[("K", source_scale)], T)
                 
     def compute_supervised_loss(self, inputs, outputs, debug=False):
-        if 'depth_gt' in inputs and inputs['depth_gt'].any():
+        if 'depth_gt' in inputs.keys() and inputs['depth_gt'].any():
             depth_gt = inputs['depth_gt']
         else:
             return 0

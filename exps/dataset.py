@@ -202,6 +202,7 @@ class MonoDataset(data.Dataset):
             del inputs[("color", i, -1)]
             del inputs[("color_aug", i, -1)]
 
+        inputs["depth_gt"] = torch.zeros(1, self.height, self.width)
         if self.load_depth:
             try:
                 depth_gt = self.get_depth(folder, frame_index, side, do_flip)
@@ -211,7 +212,7 @@ class MonoDataset(data.Dataset):
                 self.preprocess_depth(inputs)
             except FileNotFoundError:
                 # print(f'Warning: missing depth map for {folder} {frame_index} {side}')
-                inputs["depth_gt"] = torch.zeros(1, self.height, self.width)
+                pass
 
         if "s" in self.frame_idxs:
             stereo_T = np.eye(4, dtype=np.float32)
@@ -296,7 +297,7 @@ if __name__ == "__main__":
         is_train=True,
         img_ext='.png',
         load_depth=True,
-        depth_rescale_factor=100 / 255
+        depth_rescale_factor=1
     )
 
     print(len(dataset))
