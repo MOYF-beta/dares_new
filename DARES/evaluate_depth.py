@@ -37,18 +37,23 @@ def batch_post_process_disparity(l_disp, r_disp):
     r_mask = l_mask[:, :, ::-1]
     return r_mask * l_disp + l_mask * r_disp + (1.0 - l_mask - r_mask) * m_disp
 
-show_img_countdown = 10
+
+from torchvision.utils import save_image
 
 def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
-             show_images = True, auto_scale = True):
+             show_images = True, auto_scale = False,image_save_countdown = 20):
     """Evaluates a pretrained model using a specified test set
     """
-    global show_img_countdown
     dataloader = ds_and_model['dataloader']
     depth_model = ds_and_model['depth_model']
     
     errors = []
     ratios = []
+    image_index = 0  # Initialize image index
+
+    # Make sure the output directory exists
+    output_dir = './eval_images/'
+    os.makedirs(output_dir, exist_ok=True)
 
     with torch.no_grad():
         num_input_frames = len(frames_input)
@@ -66,8 +71,6 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                 input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
             output = depth_model(input_color)
-            # min_depth = data['min_depth'].cuda()
-            # max_depth = data['max_depth'].cuda()
             MIN_DEPTH = 1e-2
             MAX_DEPTH = 150
             pred_disp, _ = disp_to_depth(output[("disp", 0)], MIN_DEPTH, MAX_DEPTH)
@@ -82,6 +85,30 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
 
             pred_disp = torch.stack([torch.nn.functional.interpolate(d.unsqueeze(0).unsqueeze(0), size=(gt_height, gt_width), mode='bilinear', align_corners=False).squeeze() for d in pred_disp])
             pred_depth = 1 / pred_disp
+
+            # Save images every 1000 frames
+            if show_images and image_index % image_save_countdown == 0:
+                # Save the input color image
+                save_image(input_color[0], os.path.join(output_dir, f"{image_index}_color.png"))
+                import matplotlib.pyplot as plt
+
+                # Save the input color image
+                save_image(input_color[0], os.path.join(output_dir, f"{image_index}_color.png"))
+
+                # Save the ground truth depth image
+                fig, ax = plt.subplots()
+                ax.axis('off')
+                # 使用 squeeze() 去掉维度为 1 的维度
+                ax.imshow(gt_depth[0].squeeze().cpu().numpy(), cmap='plasma')
+                plt.savefig(os.path.join(output_dir, f"{image_index}_gt.png"), bbox_inches='tight', pad_inches=0)
+                plt.close(fig)
+
+                # Save the predicted disparity image
+                fig, ax = plt.subplots()
+                ax.axis('off')
+                ax.imshow(pred_depth[0].squeeze().cpu().numpy(), cmap='plasma')
+                plt.savefig(os.path.join(output_dir, f"{image_index}_pred.png"), bbox_inches='tight', pad_inches=0)
+                plt.close(fig)
 
             mask = (gt_depth > MIN_DEPTH) & (gt_depth < MAX_DEPTH)
             gt_depth = gt_depth[mask]
@@ -103,34 +130,10 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
 
             pred_depth = torch.clamp(pred_depth, min=MIN_DEPTH, max=MAX_DEPTH)
 
-            if show_images and show_img_countdown > 0:
-                import matplotlib.pyplot as plt
-                show_img_countdown -= 1
-                plt.figure(figsize=(10, 10))
-                plt.subplot(2, 2, 1)
-                plt.imshow(input_color[0].cpu().numpy().transpose(1, 2, 0))
-                plt.title("Input Image")
-                
-                gt_depth_img = torch.zeros_like(mask, dtype=torch.float32)
-                gt_depth_img[mask] = gt_depth
-                plt.subplot(2, 2, 2)
-                plt.imshow(gt_depth_img[0].cpu().numpy())
-                plt.title("Ground Truth Depth")
-                
-                pred_depth_img = torch.zeros_like(mask, dtype=torch.float32)
-                pred_depth_img[mask] = pred_depth
-                plt.subplot(2, 2, 3)
-                plt.imshow(pred_depth_img[0].cpu().numpy())
-                plt.title("Predicted Depth")
-                
-                error_img = torch.zeros_like(mask, dtype=torch.float32)
-                error_img[mask] = (gt_depth - pred_depth).abs()
-                plt.subplot(2, 2, 4)
-                plt.imshow(error_img[0].cpu().numpy())
-                plt.title("Error")
-                plt.savefig('./depth_eval_' + str(show_img_countdown) + '.png')
+            
 
             errors.append(compute_errors(gt_depth, pred_depth))
+            image_index += 1  # Increment image index for naming
 
     if not opt.disable_median_scaling:
         ratios = torch.tensor(ratios)
@@ -141,7 +144,6 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
     print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\", end='')
 
     return mean_errors
-
 
 if __name__ == "__main__":
     options = MonodepthOptions()
