@@ -171,11 +171,26 @@ class DARES(nn.Module):
         self.config = base_model.config
         self.backbone = base_model.backbone
 
-        # change the backbone to support two-frame input
+        # Change the backbone to support two-frame input
         original_embeddings = self.backbone.embeddings
         self.backbone.embeddings = DualFrameEmbeddings(original_embeddings)
-        # Configure PEFT with DoRA support
-        peft_config = LoraConfig(
+        
+        # Configure PEFT with DoRA support for single-frame mode
+        single_frame_config = LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,
+            inference_mode=False,
+            r=r[0],  # Using first r value as default
+            lora_alpha=16,
+            lora_dropout=0.1,
+            target_modules=target_modules,
+            use_dora=use_dora,
+            
+        )
+        # Apply PEFT to backbone for single-frame mode
+        self.backbone = get_peft_model(self.backbone, single_frame_config, adapter_name="single_frame")
+        
+        # Configure PEFT with DoRA support for dual-frame mode
+        dual_frame_config = LoraConfig(
             task_type=TaskType.FEATURE_EXTRACTION,
             inference_mode=False,
             r=r[0],  # Using first r value as default
@@ -185,14 +200,17 @@ class DARES(nn.Module):
             use_dora=use_dora,
         )
         
-        # Apply PEFT to backbone
-        self.backbone = get_peft_model(self.backbone, peft_config)
+        # Add another adapter for dual-frame mode
+        self.backbone.add_adapter("dual_frame", dual_frame_config)
+        
+        # Default to single-frame mode
+        self.backbone.set_adapter("single_frame")
         
         # Freeze base model parameters
         for param in self.backbone.parameters():
             param.requires_grad = full_finetune
             
-        # Unfreeze LoRA/DoRA parameters
+        # Unfreeze LoRA/DoRA parameters for both adapters
         for name, param in self.backbone.named_parameters():
             if "lora" in name or (use_dora and "dora" in name):
                 param.requires_grad = True
@@ -206,20 +224,41 @@ class DARES(nn.Module):
             param.requires_grad = full_finetune
         model_head = base_model.head
         self.head = DepthAnythingDepthEstimationHead(model_head)
+        
+        self.current_adapter = "single_frame"
 
-    def save_parameters(self, filename: str) -> None:
+    def save_parameters(self, filename: str, adapter_name=None) -> None:
         """Save PEFT parameters"""
-        self.backbone.save_pretrained(filename)
-        print(f'Saved {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters to {filename}')
+        if adapter_name is None:
+            # Save both adapters
+            self.backbone.save_pretrained(filename)
+            print(f'Saved both single-frame and dual-frame parameters to {filename}')
+        else:
+            # Save specific adapter
+            self.backbone.save_adapter(filename, adapter_name)
+            print(f'Saved {adapter_name} parameters to {filename}')
 
-    def load_parameters(self, filename: str) -> None:
+    def load_parameters(self, filename: str, adapter_name=None) -> None:
         """Load PEFT parameters"""
-        self.backbone.load_adapter(filename, "default")
-        print(f'Loaded {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters from {filename}')
+        if adapter_name is None:
+            # Load both adapters
+            self.backbone.load_adapter(filename)
+            print(f'Loaded both single-frame and dual-frame parameters from {filename}')
+        else:
+            # Load specific adapter
+            self.backbone.load_adapter(filename, adapter_name)
+            print(f'Loaded {adapter_name} parameters from {filename}')
 
     def forward(self, pixel_values, two_frame=False):
-
+        # Set the appropriate adapter based on the input mode
+        adapter_name = "dual_frame" if two_frame else "single_frame"
+        if self.current_adapter != adapter_name:
+            self.backbone.set_adapter(adapter_name)
+            self.current_adapter = adapter_name
+            
+        # Set the embedding mode
         self.backbone.embeddings.set_two_frame_mode(two_frame)
+        
         outputs = self.backbone.forward_with_filtered_kwargs(
             pixel_values, output_hidden_states=None, output_attentions=None
         )
