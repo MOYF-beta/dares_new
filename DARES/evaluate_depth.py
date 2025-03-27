@@ -41,7 +41,7 @@ def batch_post_process_disparity(l_disp, r_disp):
 from torchvision.utils import save_image
 
 def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
-             show_images = True, auto_scale = False,image_save_countdown = 20):
+             show_images = False, auto_scale = True,image_save_countdown = 20):
     """Evaluates a pretrained model using a specified test set
     """
     dataloader = ds_and_model['dataloader']

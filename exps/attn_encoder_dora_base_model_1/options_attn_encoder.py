@@ -26,8 +26,8 @@ DefaultOpt_dict = {
         "weight_decay": 1e-6,
         "weight_decay_pose" : 1e-6,
         "pos_learning_rate": 1e-5,
-        "num_epochs": 40,
-        "scheduler_step_size": 5,
+        "num_epochs": 20,
+        "scheduler_step_size": 10,
 
         # ABLATION options
         "learn_intrinsics" : True,

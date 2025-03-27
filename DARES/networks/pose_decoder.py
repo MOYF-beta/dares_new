@@ -70,7 +70,8 @@ class PoseDecoder(nn.Module):
                 out = self.relu(out)
 
         out = out.mean(3).mean(2)
-
+        # NOTE : Here is a key issue of training on different datasets. On previous studies this is fixed
+        # Beili says this vary from dataset to dataset.
         out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
 
         axisangle = out[..., :3]
@@ -156,7 +157,8 @@ class PoseDecoder_with_intrinsics(nn.Module):
             #     feature_for_intrinsics = out
 
         out = out.mean(3).mean(2)
-
+        # NOTE : Here is a key issue of training on different datasets. On previous studies this is fixed
+        # Beili says this vary from dataset to dataset.
         out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
 
         axisangle = out[..., :3]

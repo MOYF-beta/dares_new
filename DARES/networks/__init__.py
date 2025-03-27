@@ -1,3 +1,5 @@
+import os, sys
+sys.path.append("/mnt/c/Users/14152/Desktop/new_code")
 from .resnet_encoder import ResnetEncoder
 from .depth_decoder import DepthDecoder
 from .pose_decoder import PoseDecoder

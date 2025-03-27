@@ -1,7 +1,7 @@
 import os
 import torch
 from DARES.networks.dares_peft import DARES
-from DARES.networks.resnet_encoder import AttentionalResnetEncoder
+from DARES.networks.resnet_encoder import MultiHeadAttentionalResnetEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 from DARES.networks.optical_flow_decoder import PositionDecoder
 from DARES.networks.appearance_flow_decoder import TransformDecoder
@@ -12,9 +12,9 @@ class TrainerAttnEncoder(Trainer):
         # Initialize depth model
         encoders = {
             "depth_model": DARES(use_dora=True,target_modules=['query', 'value']),
-            "pose_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
-            "position_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
-            "transform_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
+            "pose_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
+            "position_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
+            "transform_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
         }
 
         decoders = {

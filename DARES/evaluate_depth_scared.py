@@ -59,7 +59,7 @@ def batch_post_process_disparity(l_disp, r_disp):
 
 
 def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
-             save_images = True, auto_scale = True, image_save_countdown = 5, output_dir = './eval_images/'):
+             save_images = False, auto_scale = True, image_save_countdown = 5, output_dir = './eval_images/'):
     """Evaluates a pretrained model using a specified test set
     """
     if save_images:

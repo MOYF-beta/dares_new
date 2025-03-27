@@ -45,7 +45,8 @@ def dump_r(source_to_target_transformations):
 
 # from https://github.com/tinghuiz/SfMLearner
 def compute_ate(gtruth_xyz, pred_xyz_o):
-
+    print(gtruth_xyz.shape,pred_xyz_o.shape)
+    print(gtruth_xyz,pred_xyz_o)
     # Make sure that the first matched frames align (no need for rotational alignment as
     # all the predicted/ground-truth snippets have been converted to use the same coordinate
     # system with the first frame of the snippet being the origin).
@@ -151,7 +152,7 @@ def evaluate(opt, ds_path, load_weights_folder, pose_seq=1, gt_path = None, file
         ates.append(compute_ate(gt_local_xyzs, local_xyzs))
         res.append(compute_re(local_rs, gt_rs))
 
-    # print("Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
+    print("Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
     # print("Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
     return np.mean(ates), np.mean(res), np.std(ates), np.std(res)
 
@@ -171,35 +172,35 @@ if __name__ == "__main__":
     weight_indices = [int(os.path.basename(folder).split('_')[1]) for folder in weight_folders]
     if DEBUG:
         weight_indices = weight_indices[:2]
-    with open(result_file, 'w') as f:
-        f.write('Best weight results:\n')
-        # -- SCARED Traj 1 --
-        for i in weight_indices:
-            print(f"Evaluating model {i}")
-            ate, re, std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'),f'{model_dit}/weights_{i}', pose_seq=1)
-            if ate < min_ate:
-                min_ate = ate
-                min_re = re
-                best_i = i
-        print(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        f.write(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+    with open(result_file, 'w') as f_result:
+        f_result.write('Best weight results:\n')
+        # # -- SCARED Traj 1 --
+        # for i in weight_indices:
+        #     print(f"Evaluating model {i}")
+        #     ate, re, std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'),f'{model_dit}/weights_{i}', pose_seq=1)
+        #     if ate < min_ate:
+        #         min_ate = ate
+        #         min_re = re
+        #         best_i = i
+        # print(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
+        # f_result.write(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
 
         # # -- SCARED Traj 2 --
-        min_ate = np.inf
-        min_re = np.inf
-        ate_std = np.inf
-        re_std = np.inf
-        for i in weight_indices:
-            print(f"Evaluating model {i}")
-            ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'), f'{model_dit}/weights_{i}', pose_seq=2)
-            if ate < min_ate:
-                min_ate = ate
-                min_re = re
-                ate_std = std_ate
-                re_std = std_re
-                best_i = i
-        print(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        f.write(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+        # min_ate = np.inf
+        # min_re = np.inf
+        # ate_std = np.inf
+        # re_std = np.inf
+        # for i in weight_indices:
+        #     print(f"Evaluating model {i}")
+        #     ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'), f'{model_dit}/weights_{i}', pose_seq=2)
+        #     if ate < min_ate:
+        #         min_ate = ate
+        #         min_re = re
+        #         ate_std = std_ate
+        #         re_std = std_re
+        #         best_i = i
+        # print(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
+        # f_result.write(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
 
         # -- SimColon --
 
@@ -231,39 +232,38 @@ if __name__ == "__main__":
                 ate_std = std_ate
                 re_std = std_re
         print(f"SyntheticColon : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        f.write(f"SyntheticColon : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+        f_result.write(f"SyntheticColon : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+        # # -- C3VD --
+        # test_folders = os.path.join(ds_base, 'C3VD_as_SCARED', 'splits', 'test_folders.txt')
+        # with open(test_folders, 'r') as f:
+        #     test_folders = f.readlines()
 
-        # -- C3VD --
-        test_folders = os.path.join(ds_base, 'C3VD_as_SCARED', 'splits', 'test_folders.txt')
-        with open(test_folders, 'r') as f:
-            test_folders = f.readlines()
+        # min_ate = np.inf
+        # min_re = np.inf
+        # str_ate = None
+        # str_re = None
+        # for i in weight_indices:
+        #     ates = []
+        #     res = []
+        #     print(f"Evaluating model {i}")
+        #     for test_folder in tqdm(test_folders):
+        #         full_test_folder = os.path.join(ds_base, 'C3VD_as_SCARED', test_folder.strip())
+        #         ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'C3VD_as_SCARED'),
+        #                             f'{model_dit}/weights_{i}',
+        #                             filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
+        #                             gt_path=os.path.join(full_test_folder, 'traj.npy'))
+        #         ates.append(ate)
+        #         res.append(re)
 
-        min_ate = np.inf
-        min_re = np.inf
-        str_ate = None
-        str_re = None
-        for i in weight_indices:
-            ates = []
-            res = []
-            print(f"Evaluating model {i}")
-            for test_folder in tqdm(test_folders):
-                full_test_folder = os.path.join(ds_base, 'C3VD_as_SCARED', test_folder.strip())
-                ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'C3VD_as_SCARED'),
-                                    f'{model_dit}/weights_{i}',
-                                    filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
-                                    gt_path=os.path.join(full_test_folder, 'traj.npy'))
-                ates.append(ate)
-                res.append(re)
-
-            if np.mean(ates) < min_ate:
-                min_ate = np.mean(ates)
-                min_re = np.mean(res)
-                best_i = i
-                ate_std = std_ate
-                re_std = std_re
+        #     if np.mean(ates) < min_ate:
+        #         min_ate = np.mean(ates)
+        #         min_re = np.mean(res)
+        #         best_i = i
+        #         ate_std = std_ate
+        #         re_std = std_re
                 
-        print(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        f.write(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+        # print(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
+        # f_result.write(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
 
     # generate figure
     # evaluate(AttnEncoderOpt, f'{model_dit}/weights_{best_i}', pose_seq=1)

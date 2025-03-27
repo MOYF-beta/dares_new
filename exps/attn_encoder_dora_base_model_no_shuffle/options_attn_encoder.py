@@ -21,12 +21,12 @@ DefaultOpt_dict = {
         "other_frame_init_weight" : 1e-5,
 
         # OPTIMIZATION options
-        "batch_size": 10,
+        "batch_size": 12,
         "learning_rate": 1e-4,
         "weight_decay": 1e-6,
         "weight_decay_pose" : 1e-6,
-        "pos_learning_rate": 1e-5,
-        "num_epochs": 30,
+        "pos_learning_rate": 1e-4,
+        "num_epochs": 40,
         "scheduler_step_size": 10,
 
         # ABLATION options

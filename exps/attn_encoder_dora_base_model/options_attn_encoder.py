@@ -22,11 +22,11 @@ DefaultOpt_dict = {
 
         # OPTIMIZATION options
         "batch_size": 10,
-        "learning_rate": 1e-5,
+        "learning_rate": 1e-4,
         "weight_decay": 1e-6,
         "weight_decay_pose" : 1e-6,
-        "pos_learning_rate": 1e-6,
-        "num_epochs": 40,
+        "pos_learning_rate": 1e-5,
+        "num_epochs": 30,
         "scheduler_step_size": 5,
 
         # ABLATION options

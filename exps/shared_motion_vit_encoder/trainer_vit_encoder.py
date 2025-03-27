@@ -11,13 +11,12 @@ from exps.trainer_abc import Trainer
 class TrainerVitEncoder(Trainer):
     def load_model(self):
         # Initialize depth model
-        shared_encoder = VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,
-                                       img_size=(self.opt.height, self.opt.width), motion_embedding=True)
         encoders = {
             "depth_model": DARES(),
-            "pose_encoder": shared_encoder,
-            "position_encoder": shared_encoder,
-            "transform_encoder": shared_encoder
+            "pose_encoder": VitEncoder(pretrained=False, num_input_images=self.num_pose_frames,
+                                       img_size=(self.opt.height, self.opt.width), motion_embedding=True),
+            "position_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
+            "transform_encoder": AttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
         }
 
         decoders = {

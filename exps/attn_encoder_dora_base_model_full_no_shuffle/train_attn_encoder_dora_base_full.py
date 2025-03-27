@@ -16,7 +16,7 @@ if __name__ == "__main__":
     if not check_test_only():
         trainer = TrainerAttnEncoder(model_name, log_path, opt, 
                           train_eval_ds={'train': ds_base_model_train, 'val': ds_val,'train_sampler':ConcatDatasetSampler },
-                          pretrained_root_dir=pretrained_root_dir, debug=False)
+                          pretrained_root_dir=pretrained_root_dir, debug=True)
         trainer.train()
     find_best('DARES_peft', model_name, dataset=ds_test, ds_name='SCARED')
     find_best('DARES_peft', model_name, dataset=ds_test_c3vd, ds_name='C3VD')

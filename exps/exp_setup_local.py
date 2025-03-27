@@ -152,12 +152,12 @@ splits_dir = os.path.join(ds_base, 'hamlyn_as_SCARED', 'splits')
 split_train = os.path.join(ds_path, 'splits/train_files.txt')
 split_test = os.path.join(ds_path, 'splits/test_files.txt')
 train_filenames = readlines(split_train)
-random.shuffle(train_filenames)
+# random.shuffle(train_filenames)
 test_filenames = readlines(split_test)
-random.shuffle(test_filenames)
+# random.shuffle(test_filenames)
 test_filenames = readlines(split_test)
 
-hamlyn_ratio = 0.2
+hamlyn_ratio = 0.05
 ds_train_hamlyn = SCAREDRAWDataset(
     data_path=ds_path,
     filenames=train_filenames[:int(hamlyn_ratio * len(train_filenames))],
@@ -179,10 +179,9 @@ ds_test_hamlyn = SCAREDRAWDataset(
     height=DefaultOpt.height,
     width=DefaultOpt.width,
     load_depth=True,
-    depth_rescale_factor= 1,
     num_scales=1,
     min_depth=0.1,
-    max_depth=150,
+    max_depth=200,
     is_train=False,
     img_ext='.png'
 )
@@ -285,6 +284,42 @@ def check_ds():
 
 if __name__ == "__main__":
     check_ds()
-    split_train = "/mnt/c/Users/14152/ZCH/Dev/datasets/C3VD_as_SCARED/splits/test_files.txt"
-    a = readlines(split_train)
-    print(len(a))
+    # split_train = "/mnt/c/Users/14152/ZCH/Dev/datasets/C3VD_as_SCARED/splits/test_files.txt"
+    # a = readlines(split_train)
+    # print(len(a))
+
+    # hamlyn_sample = ds_train_hamlyn[0]
+    # print(hamlyn_sample.keys())
+    # print(hamlyn_sample['depth_gt'].shape)
+    # print(hamlyn_sample['depth_gt'].max())
+    # print(hamlyn_sample['depth_gt'].min())
+
+    # total_depth = 0
+    # total_count = 0
+    # max_depth = 0
+    # min_depth = 100000
+    # import matplotlib.pyplot as plt
+
+    # depths = []
+
+    # for i in range(100):
+    #     sample = ds_train_hamlyn[i]
+    #     depths.extend(sample['depth_gt'].flatten().tolist())
+
+    # plt.hist(depths, bins=50, range=(0, 1000))
+    # plt.title('Depth Distribution of ds_train_hamlyn')
+    # plt.xlabel('Depth')
+    # plt.ylabel('Frequency')
+    # plt.show()
+
+    # for i in range(len(ds_train_hamlyn)):
+    #     sample = ds_train_hamlyn[i]
+    #     total_depth += sample['depth_gt'].sum()
+    #     total_count += sample['depth_gt'].numel()
+    #     max_depth = max(max_depth, sample['depth_gt'].max())
+    #     min_depth = min(min_depth, sample['depth_gt'].min())
+
+    # average_depth = total_depth / total_count
+    # print(f"Average depth of ds_train_hamlyn: {average_depth}")
+    # print(f"Max depth of ds_train_hamlyn: {max_depth}")
+    # print(f"Min depth of ds_train_hamlyn: {min_depth}")
