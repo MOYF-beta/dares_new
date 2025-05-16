@@ -3,12 +3,20 @@ from __future__ import absolute_import, division, print_function
 import os
 import torch
 import sys
+import argparse
+import numpy as np
+import evo
+from evo.core import trajectory
+from evo.tools import file_interface
+from evo.core import metrics
+from evo.core import sync
+from tqdm import tqdm
+from evo.tools import plot
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from exps.dataset import SCAREDRAWDataset
 from torch.utils.data import DataLoader
-import numpy as np
 from DARES.networks.resnet_encoder import AttentionalResnetEncoder, MultiHeadAttentionalResnetEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 
@@ -20,65 +28,103 @@ import warnings
 warnings.filterwarnings('ignore')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# from https://github.com/tinghuiz/SfMLearner
-def dump_xyz(source_to_target_transformations):
-    xyzs = []
-    cam_to_world = np.eye(4)
-    xyzs.append(cam_to_world[:3, 3])
-    for source_to_target_transformation in source_to_target_transformations:
-        cam_to_world = np.dot(cam_to_world, source_to_target_transformation)
-        # cam_to_world = np.dot(source_to_target_transformation, cam_to_world)
-        xyzs.append(cam_to_world[:3, 3])
-    return xyzs
+def transformation_matrix_to_kitti_format(transformations):
+    """Convert transformation matrices to KITTI format (r11 r12 r13 t1 r21 r22 r23 t2 r31 r32 r33 t3)"""
+    kitti_data = []
+    
+    for transformation in transformations:
+        # Extract rotation matrix and translation vector
+        rotation_matrix = transformation[:3, :3]
+        translation = transformation[:3, 3]
+        
+        # Format: r11 r12 r13 t1 r21 r22 r23 t2 r31 r32 r33 t3
+        line = " ".join([str(rotation_matrix[0, 0]), str(rotation_matrix[0, 1]), str(rotation_matrix[0, 2]), str(translation[0]),
+                         str(rotation_matrix[1, 0]), str(rotation_matrix[1, 1]), str(rotation_matrix[1, 2]), str(translation[1]),
+                         str(rotation_matrix[2, 0]), str(rotation_matrix[2, 1]), str(rotation_matrix[2, 2]), str(translation[2])])
+        kitti_data.append(line)
+        
+    return kitti_data
 
+def transformation_matrix_to_tum_format(transformations):
+    """Convert transformation matrices to TUM format (timestamp tx ty tz qx qy qz qw)"""
+    from scipy.spatial.transform import Rotation
+    
+    tum_data = []
+    timestamp = 0
+    
+    for transformation in transformations:
+        rotation_matrix = transformation[:3, :3]
+        translation = transformation[:3, 3]
+        
+        # Convert rotation matrix to quaternion
+        r = Rotation.from_matrix(rotation_matrix)
+        quat = r.as_quat()  # x, y, z, w format
+        
+        # TUM format uses quaternion in w, x, y, z order
+        qw, qx, qy, qz = quat[3], quat[0], quat[1], quat[2]
+        
+        # Format: timestamp tx ty tz qx qy qz qw
+        tum_data.append(f"{timestamp} {translation[0]} {translation[1]} {translation[2]} {qx} {qy} {qz} {qw}")
+        timestamp += 0.1  # Increment timestamp
+        
+    return tum_data
 
-def dump_r(source_to_target_transformations):
-    rs = []
-    cam_to_world = np.eye(4)
-    rs.append(cam_to_world[:3, :3])
-    for source_to_target_transformation in source_to_target_transformations:
-        cam_to_world = np.dot(cam_to_world, source_to_target_transformation)
-        # cam_to_world = np.dot(source_to_target_transformation, cam_to_world)
-        rs.append(cam_to_world[:3, :3])
-    return rs
+def write_trajectory_to_file(transformation_matrices, output_path, format='kitti'):
+    """Write transformation matrices to a file in specified format"""
+    if format == 'tum':
+        data = transformation_matrix_to_tum_format(transformation_matrices)
+    else:  # kitti format
+        data = transformation_matrix_to_kitti_format(transformation_matrices)
+    
+    with open(output_path, 'w') as f:
+        for line in data:
+            f.write(line + '\n')
+    
+    return output_path
 
+def load_kitti_poses(pose_file_path):
+    """Load KITTI pose file and convert to evo trajectory"""
+    poses = []
+    with open(pose_file_path, 'r') as f:
+        for line in f.readlines():
+            values = [float(v) for v in line.strip().split()]
+            pose = np.eye(4)
+            pose[0, 0:4] = values[0:4]
+            pose[1, 0:4] = values[4:8]
+            pose[2, 0:4] = values[8:12]
+            poses.append(pose)
+    
+    if len(poses) == 0:
+        raise ValueError(f"No poses found in file: {pose_file_path}")
+    
+    # Pre-allocate arrays for trajectory
+    positions = np.zeros((len(poses), 3))
+    orientations = np.zeros((len(poses), 4))
+    timestamps = np.zeros(len(poses))
+    
+    # Fill arrays with pose data
+    for i, pose in enumerate(poses):
+        # Extract translation
+        positions[i] = pose[:3, 3]
+        
+        # Convert rotation matrix to quaternion (w, x, y, z)
+        from scipy.spatial.transform import Rotation
+        r = Rotation.from_matrix(pose[:3, :3])
+        q = r.as_quat()  # x, y, z, w
+        orientations[i] = np.array([q[3], q[0], q[1], q[2]])  # convert to w, x, y, z
+        timestamps[i] = float(i)
+    
+    # Create trajectory with all data at once
+    traj = trajectory.PoseTrajectory3D(
+        positions_xyz=positions,
+        orientations_quat_wxyz=orientations, 
+        timestamps=timestamps
+    )
+    
+    return traj
 
-# from https://github.com/tinghuiz/SfMLearner
-def compute_ate(gtruth_xyz, pred_xyz_o):
-    print(gtruth_xyz.shape,pred_xyz_o.shape)
-    print(gtruth_xyz,pred_xyz_o)
-    # Make sure that the first matched frames align (no need for rotational alignment as
-    # all the predicted/ground-truth snippets have been converted to use the same coordinate
-    # system with the first frame of the snippet being the origin).
-    offset = gtruth_xyz[0] - pred_xyz_o[0]
-    pred_xyz = pred_xyz_o + offset[None, :]
-
-    # Optimize the scaling factor
-    scale = np.sum(gtruth_xyz * pred_xyz) / np.sum(pred_xyz ** 2)
-    alignment_error = pred_xyz * scale - gtruth_xyz
-    rmse = np.sqrt(np.sum(alignment_error ** 2)) / gtruth_xyz.shape[0]
-    return rmse
-
-
-def compute_re(gtruth_r, pred_r):
-    RE = 0
-    gt = gtruth_r
-    pred = pred_r
-    for gt_pose, pred_pose in zip(gt, pred):
-        # Residual matrix to which we compute angle's sin and cos
-        R = gt_pose @ np.linalg.inv(pred_pose)
-        s = np.linalg.norm([R[0, 1] - R[1, 0],
-                            R[1, 2] - R[2, 1],
-                            R[0, 2] - R[2, 0]])
-        c = np.trace(R) - 1
-        # Note: we actually compute double of cos and sin, but arctan2 is invariant to scale
-        RE += np.arctan2(s, c)
-
-    return RE / gtruth_r.shape[0]
-
-
-def evaluate(opt, ds_path, load_weights_folder, pose_seq=1, gt_path = None, filename_list_path = None):
-    """Evaluate odometry on the SCARED dataset
+def evaluate(opt, ds_path, load_weights_folder, pose_seq=1, gt_path=None, filename_list_path=None):
+    """Evaluate odometry on the specified dataset using evo
     """
     assert os.path.isdir(load_weights_folder), \
         "Cannot find a folder at {}".format(load_weights_folder)
@@ -131,139 +177,255 @@ def evaluate(opt, ds_path, load_weights_folder, pose_seq=1, gt_path = None, file
                 transformation_from_parameters(axisangle[:, 0], translation[:, 0]).cpu().numpy())
 
     pred_poses = np.concatenate(pred_poses)
-    # np.savez_compressed(os.path.join(os.path.dirname(__file__), "splits", "endovis", "curve", "pose_our.npz"), data=np.array(pred_poses))
-    # np.savez_compressed(os.path.join(ds_path, "splits", "endovis", "pred_pose_sq{}.npz".format(scared_pose_seq)), data=np.array(pred_poses))
+    
+    # Create temporary files for evaluation
+    temp_dir = os.path.join(os.path.dirname(load_weights_folder), "temp_eval")
+    os.makedirs(temp_dir, exist_ok=True)
+    pred_traj_file = os.path.join(temp_dir, "pred_trajectory.txt")
+    
+    # Convert predicted poses to trajectory file
+    accumulated_poses = [np.eye(4)]
+    for i in range(len(pred_poses)):
+        accumulated_poses.append(np.dot(accumulated_poses[-1], pred_poses[i]))
+    
+    # Write trajectory in KITTI format
+    write_trajectory_to_file(accumulated_poses[1:], pred_traj_file, format='kitti')
+    
+    # Load ground truth from KITTI format file
     if gt_path is None:
-        gt_path = os.path.join(ds_path, "splits", "endovis", "gt_poses_sq{}.npz".format(pose_seq))
-        gt_local_poses = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
-    else:
-        gt_local_poses = np.load(gt_path)
+        gt_path = os.path.join(ds_path, "splits", f"traj_kitti_{pose_seq}.txt")
+    
+    # Load trajectories with evo
+    traj_ref = load_kitti_poses(gt_path)
+    traj_est = load_kitti_poses(pred_traj_file)
+    
+    # Associate, register and align trajectories
+    print("Registering and aligning trajectories")
+    traj_ref, traj_est = sync.associate_trajectories(traj_ref, traj_est)
+    traj_est.align(traj_ref, correct_scale=True)
+    
+    # Calculate ATE
+    ate_metric = metrics.APE(metrics.PoseRelation.translation_part)
+    ate_metric.process_data((traj_ref, traj_est))
+    ate_statistics = ate_metric.get_all_statistics()
+    
+    # Calculate RPE
+    rpe_metric = metrics.RPE(metrics.PoseRelation.rotation_angle_deg)
+    rpe_metric.process_data((traj_ref, traj_est))
+    rpe_statistics = rpe_metric.get_all_statistics()
 
-    ates = []
-    res = []
-    num_frames = gt_local_poses.shape[0]
-    track_length = 5
-    for i in range(0, num_frames - 1):
-        local_xyzs = np.array(dump_xyz(pred_poses[i:i + track_length - 1]))
-        gt_local_xyzs = np.array(dump_xyz(gt_local_poses[i:i + track_length - 1]))
-        local_rs = np.array(dump_r(pred_poses[i:i + track_length - 1]))
-        gt_rs = np.array(dump_r(gt_local_poses[i:i + track_length - 1]))
+    # Save trajectory visualization
+    # Create output folder for visualizations
+    vis_output_dir = os.path.join(os.path.dirname(load_weights_folder), "trajectory_vis")
+    os.makedirs(vis_output_dir, exist_ok=True)
 
-        ates.append(compute_ate(gt_local_xyzs, local_xyzs))
-        res.append(compute_re(local_rs, gt_rs))
+    # Create a plot collection for visualization
+    import matplotlib.pyplot as plt
 
-    print("Trajectory error: {:0.4f}, std: {:0.4f}\n".format(np.mean(ates), np.std(ates)))
-    # print("Rotation error: {:0.4f}, std: {:0.4f}\n".format(np.mean(res), np.std(res)))
-    return np.mean(ates), np.mean(res), np.std(ates), np.std(res)
+    plot_collection = plot.PlotCollection(f"Trajectory Evaluation - Seq {pose_seq}")
+
+    # Plot ATE error
+    fig_ate = plt.figure(figsize=(10, 8))
+    plot.error_array(fig_ate.gca(), ate_metric.error, statistics=ate_statistics,
+                    name="APE", title=str(ate_metric))
+    plot_collection.add_figure("ate_error", fig_ate)
+
+    # Plot trajectory with ATE error colormap
+    fig_traj_ate = plt.figure(figsize=(10, 8))
+    plot_mode = plot.PlotMode.xy
+    ax = plot.prepare_axis(fig_traj_ate, plot_mode)
+    plot.traj(ax, plot_mode, traj_ref, '--', 'gray', 'reference')
+    plot.traj_colormap(ax, traj_est, ate_metric.error, plot_mode,
+                      min_map=ate_statistics["min"],
+                      max_map=ate_statistics["max"],
+                      title="ATE mapped onto trajectory")
+    plot_collection.add_figure("traj_ate", fig_traj_ate)
+
+    # Plot RPE error
+    fig_rpe = plt.figure(figsize=(10, 8))
+    plot.error_array(fig_rpe.gca(), rpe_metric.error, statistics=rpe_statistics,
+                    name="RPE", title=str(rpe_metric))
+    plot_collection.add_figure("rpe_error", fig_rpe)
+
+    # Plot 3D view of trajectories
+    fig_3d = plt.figure(figsize=(10, 8))
+    ax = plot.prepare_axis(fig_3d, plot.PlotMode.xyz)
+    plot.traj(ax, plot.PlotMode.xyz, traj_ref, '--', 'gray', 'reference')
+    plot.traj(ax, plot.PlotMode.xyz, traj_est, '-', 'blue', 'estimated')
+    ax.legend()
+    plot_collection.add_figure("traj_3d", fig_3d)
+
+    # Save all plots to the output directory
+    output_filename = os.path.join(vis_output_dir, f"trajectory_seq{pose_seq}")
+    plot_collection.export(output_filename, confirm_overwrite=False)
+    plt.close('all')
+    
+    # Print results
+    print(f"ATE RMSE: {ate_statistics['rmse']}, std: {ate_statistics['std']}")
+    print(f"RPE mean: {rpe_statistics['mean']}, std: {rpe_statistics['std']}")
+    
+    return ate_statistics['rmse'], rpe_statistics['mean'], ate_statistics['std'], rpe_statistics['std']
 
 if __name__ == "__main__":
-    DEBUG = True
-    from tqdm import tqdm
-    model_dit = 'logs/base_model_2/models'
-    result_file = model_dit+'/traj_results.txt'
+    parser = argparse.ArgumentParser(description="Evaluate pose estimation on different datasets")
+    parser.add_argument('--dataset', type=str, choices=['SCARED', 'SyntheticColon', 'C3VD'], default='SCARED',
+                        help='Dataset to evaluate on (SCARED, SyntheticColon, or C3VD)')
+    parser.add_argument('--model_dir', type=str, default='logs/base_model_2/models',
+                        help='Directory containing the model weights')
+    parser.add_argument('--debug', action='store_true', help='Run in debug mode (limited evaluation)')
+    args = parser.parse_args()
+    
+    DEBUG = args.debug
+    model_dir = args.model_dir
+    result_file = os.path.join(model_dir, 'traj_results.txt')
     from exps.attn_encoder_dora.options_attn_encoder import AttnEncoderOpt
     import glob
-    min_ate = np.inf
-    min_re = np.inf
-    ate_std = np.inf
-    re_std = np.inf
-    best_i = 0
-    weight_folders = glob.glob(model_dit+'/weights_*')
+    
+    weight_folders = glob.glob(os.path.join(model_dir, 'weights_*'))
     weight_indices = [int(os.path.basename(folder).split('_')[1]) for folder in weight_folders]
     if DEBUG:
         weight_indices = weight_indices[:2]
+    
     with open(result_file, 'w') as f_result:
         f_result.write('Best weight results:\n')
-        # # -- SCARED Traj 1 --
-        # for i in weight_indices:
-        #     print(f"Evaluating model {i}")
-        #     ate, re, std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'),f'{model_dit}/weights_{i}', pose_seq=1)
-        #     if ate < min_ate:
-        #         min_ate = ate
-        #         min_re = re
-        #         best_i = i
-        # print(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        # f_result.write(f"SCARED Traj 1:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
-
-        # # -- SCARED Traj 2 --
-        # min_ate = np.inf
-        # min_re = np.inf
-        # ate_std = np.inf
-        # re_std = np.inf
-        # for i in weight_indices:
-        #     print(f"Evaluating model {i}")
-        #     ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SCARED_Images_Resized'), f'{model_dit}/weights_{i}', pose_seq=2)
-        #     if ate < min_ate:
-        #         min_ate = ate
-        #         min_re = re
-        #         ate_std = std_ate
-        #         re_std = std_re
-        #         best_i = i
-        # print(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        # f_result.write(f"SCARED Traj 2:Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
-
-        # -- SimColon --
-
-        test_folders = os.path.join(ds_base, 'SyntheticColon_as_SCARED', 'splits', 'test_folders.txt')
-        with open(test_folders, 'r') as f:
-            test_folders = f.readlines()
-
-        min_ate = np.inf
-        min_re = np.inf
-        ate_std = np.inf
-        re_std = np.inf
-        for i in weight_indices:
-            ates = []
-            res = []
-            print(f"Evaluating model {i}")
-            for test_folder in tqdm(test_folders):
-                full_test_folder = os.path.join(ds_base, 'SyntheticColon_as_SCARED', test_folder.strip())
-                ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'SyntheticColon_as_SCARED')
-                                   , f'{model_dit}/weights_{i}',
-                                    filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
-                                    gt_path=os.path.join(full_test_folder, 'traj.npy'))
-                ates.append(ate)
-                res.append(re)
+        
+        if args.dataset == 'SCARED':
+            # -- SCARED Traj 1 --
+            min_ate = np.inf
+            min_re = np.inf
+            ate_std = np.inf
+            re_std = np.inf
+            best_i = 0
             
-            if np.mean(ates) < min_ate:
-                min_ate = np.mean(ates)
-                min_re = np.mean(res)
-                best_i = i
-                ate_std = std_ate
-                re_std = std_re
-        print(f"SyntheticColon : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        f_result.write(f"SyntheticColon : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
-        # # -- C3VD --
-        # test_folders = os.path.join(ds_base, 'C3VD_as_SCARED', 'splits', 'test_folders.txt')
-        # with open(test_folders, 'r') as f:
-        #     test_folders = f.readlines()
-
-        # min_ate = np.inf
-        # min_re = np.inf
-        # str_ate = None
-        # str_re = None
-        # for i in weight_indices:
-        #     ates = []
-        #     res = []
-        #     print(f"Evaluating model {i}")
-        #     for test_folder in tqdm(test_folders):
-        #         full_test_folder = os.path.join(ds_base, 'C3VD_as_SCARED', test_folder.strip())
-        #         ate, re , std_ate, std_re = evaluate(AttnEncoderOpt, os.path.join(ds_base, 'C3VD_as_SCARED'),
-        #                             f'{model_dit}/weights_{i}',
-        #                             filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
-        #                             gt_path=os.path.join(full_test_folder, 'traj.npy'))
-        #         ates.append(ate)
-        #         res.append(re)
-
-        #     if np.mean(ates) < min_ate:
-        #         min_ate = np.mean(ates)
-        #         min_re = np.mean(res)
-        #         best_i = i
-        #         ate_std = std_ate
-        #         re_std = std_re
+            for i in weight_indices:
+                print(f"Evaluating model {i} on SCARED Trajectory 1")
+                ate, re, std_ate, std_re = evaluate(
+                    AttnEncoderOpt, 
+                    os.path.join(ds_base, 'SCARED_Images_Resized'),
+                    f'{model_dir}/weights_{i}', 
+                    pose_seq=1
+                )
                 
-        # print(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}")
-        # f_result.write(f"C3VD : Best ATE: {min_ate}+-{std_ate}, Best RE: {min_re}+-{std_re} @ {best_i}\n")
+                if ate < min_ate:
+                    min_ate = ate
+                    min_re = re
+                    ate_std = std_ate
+                    re_std = std_re
+                    best_i = i
+                    
+            print(f"SCARED Traj 1: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}")
+            f_result.write(f"SCARED Traj 1: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}\n")
+            
+            # -- SCARED Traj 2 --
+            min_ate = np.inf
+            min_re = np.inf
+            ate_std = np.inf
+            re_std = np.inf
+            best_i = 0
+            
+            for i in weight_indices:
+                print(f"Evaluating model {i} on SCARED Trajectory 2")
+                ate, re, std_ate, std_re = evaluate(
+                    AttnEncoderOpt, 
+                    os.path.join(ds_base, 'SCARED_Images_Resized'), 
+                    f'{model_dir}/weights_{i}', 
+                    pose_seq=2
+                )
+                
+                if ate < min_ate:
+                    min_ate = ate
+                    min_re = re
+                    ate_std = std_ate
+                    re_std = std_re
+                    best_i = i
+                    
+            print(f"SCARED Traj 2: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}")
+            f_result.write(f"SCARED Traj 2: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}\n")
+            
+        elif args.dataset == 'SyntheticColon':
+            # -- SimColon --
+            test_folders_file = os.path.join(ds_base, 'SyntheticColon_as_SCARED', 'splits', 'test_folders.txt')
+            with open(test_folders_file, 'r') as f:
+                test_folders = f.readlines()
+            
+            min_ate = np.inf
+            min_re = np.inf
+            ate_std = np.inf
+            re_std = np.inf
+            best_i = 0
+            
+            for i in weight_indices:
+                ates = []
+                res = []
+                std_ates = []
+                std_res = []
+                print(f"Evaluating model {i} on SyntheticColon")
+                
+                
+                for test_folder in tqdm(test_folders):
+                    full_test_folder = os.path.join(ds_base, 'SyntheticColon_as_SCARED', test_folder.strip())
+                    ate, re, std_ate, std_re = evaluate(
+                        AttnEncoderOpt, 
+                        os.path.join(ds_base, 'SyntheticColon_as_SCARED'),
+                        f'{model_dir}/weights_{i}',
+                        filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
+                        gt_path=os.path.join(full_test_folder, 'traj.txt')
+                    )
+                    ates.append(ate)
+                    res.append(re)
+                    std_ates.append(std_ate)
+                    std_res.append(std_re)
+                
+                if np.mean(ates) < min_ate:
+                    min_ate = np.mean(ates)
+                    min_re = np.mean(res)
+                    best_i = i
+                    ate_std = np.mean(std_ates)
+                    re_std = np.mean(std_res)
+                    
+            print(f"SyntheticColon: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}")
+            f_result.write(f"SyntheticColon: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}\n")
+            
+        elif args.dataset == 'C3VD':
+            # -- C3VD --
+            test_folders_file = os.path.join(ds_base, 'C3VD_as_SCARED', 'splits', 'test_folders.txt')
+            with open(test_folders_file, 'r') as f:
+                test_folders = f.readlines()
+            
+            min_ate = np.inf
+            min_re = np.inf
+            ate_std = np.inf
+            re_std = np.inf
+            best_i = 0
+            
+            for i in weight_indices:
+                ates = []
+                res = []
+                std_ates = []
+                std_res = []
+                print(f"Evaluating model {i} on C3VD")
+                
 
-    # generate figure
-    # evaluate(AttnEncoderOpt, f'{model_dit}/weights_{best_i}', pose_seq=1)
+                for test_folder in tqdm(test_folders):
+                    full_test_folder = os.path.join(ds_base, 'C3VD_as_SCARED', test_folder.strip())
+                    ate, re, std_ate, std_re = evaluate(
+                        AttnEncoderOpt, 
+                        os.path.join(ds_base, 'C3VD_as_SCARED'),
+                        f'{model_dir}/weights_{i}',
+                        filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
+                        gt_path=os.path.join(full_test_folder, 'traj.txt')
+                    )
+                    ates.append(ate)
+                    res.append(re)
+                    std_ates.append(std_ate)
+                    std_res.append(std_re)
+                
+                if np.mean(ates) < min_ate:
+                    min_ate = np.mean(ates)
+                    min_re = np.mean(res)
+                    best_i = i
+                    ate_std = np.mean(std_ates)
+                    re_std = np.mean(std_res)
+                    
+            print(f"C3VD: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}")
+            f_result.write(f"C3VD: Best ATE: {min_ate}+-{ate_std}, Best RE: {min_re}+-{re_std} @ {best_i}\n")
