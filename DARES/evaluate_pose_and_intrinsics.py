@@ -360,7 +360,8 @@ def visualize_intrinsics_errors(errors, output_dir, name_prefix=""):
 
 def evaluate(opt, ds_path, load_weights_folder, dataset_name="SCARED", pose_seq=1, 
              evaluate_pose=True, evaluate_intrinsics=True, 
-             gt_path=None, filename_list_path=None):
+             gt_path=None, filename_list_path=None,
+             pose_encoder_class=AttentionalResnetEncoder, pose_decoder_class=PoseDecoder_i):
     """Unified evaluation function for both pose and intrinsics
     
     Args:
@@ -398,14 +399,14 @@ def evaluate(opt, ds_path, load_weights_folder, dataset_name="SCARED", pose_seq=
     pose_decoder_path = os.path.join(load_weights_folder, "pose.pth")
     
     # Load encoder
-    pose_encoder = AttentionalResnetEncoder(opt.num_layers, False, num_input_images=2)
+    pose_encoder = pose_encoder_class(opt.num_layers, False, num_input_images=2)
     static_dict = torch.load(pose_encoder_path, map_location=device.type)
     if 'module.' in list(static_dict.keys())[0]:
         static_dict = {k.replace('module.', ''): v for k, v in static_dict.items()}
     pose_encoder.load_state_dict(static_dict)
     
     # Load decoder with intrinsics prediction
-    pose_decoder = PoseDecoder_i(
+    pose_decoder = pose_decoder_class(
         pose_encoder.num_ch_enc, 
         image_width=opt.width, 
         image_height=opt.height, 
