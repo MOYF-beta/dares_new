@@ -76,8 +76,8 @@ def find_best_parametric(model_loader_fn, model_name, only_keep_best=False, ds_n
                 evaluate_pose=True,
                 evaluate_intrinsics=True
             )
-            if pose_result and 'ate_metric' in pose_result:
-                ate = pose_result['ate_metric'] if isinstance(pose_result['ate_metric'], float) else pose_result['ate_metric'].get('rmse', None)
+            if pose_result and 'ate_rmse' in pose_result:
+                ate = pose_result['ate_rmse'] if isinstance(pose_result['ate_rmse'], float) else None 
                 pose_ate_dict[weight] = ate
                 if ate is not None and ate < best_pose_score:
                     best_pose_score = ate
