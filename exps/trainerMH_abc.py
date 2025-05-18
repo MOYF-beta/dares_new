@@ -169,7 +169,7 @@ class TrainerMH(ABC):
         """加载 DARES_MH 单模型多任务结构"""
         heads = ["depth", "pose", "optical_flow", "appearance_flow"]
         self.models["dares_mh"] = DARES_MH(
-            r=[14,14,12,12,10,10,8,8,8,8,8,8],
+            r=8,
             target_modules=['query', 'value'],
             use_dora=True,
             full_finetune=False,
@@ -213,9 +213,16 @@ class TrainerMH(ABC):
             for head in model.heads_dict.values():
                 for param in head.parameters():
                     param.requires_grad = True
+        # 3.将所有embedding 的融合层设置为可训练
+        model.backbone.embeddings.set_trainable()
+        # # 输出所有 requires_grad 的参数名称
+        # print(f"Trainable parameters , mode = {train_position_only}:")
+        # for name, param in model.named_parameters():
+        #     if param.requires_grad:
+        #         print(name)
+        # print("--" * 20)
         # 3. 双帧embedding始终可训练
-        for param in model.backbone.embeddings.parameters():
-            param.requires_grad = True
+        model.backbone.embeddings.set_trainable()
         # 4. 设置train/eval模式
         model.train()
 

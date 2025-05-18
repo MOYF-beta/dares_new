@@ -20,31 +20,48 @@ class DualFrameEmbeddings(nn.Module):
     def __init__(self, original_embeddings):
         super(DualFrameEmbeddings, self).__init__() 
         self.embeddings_a = original_embeddings
-        # Deep copy the original embeddings for the second frame
+        # Deep copy original embeddings for the second frame
         self.embeddings_b = copy.deepcopy(original_embeddings)
-        
-        # 3D convolution to fuse features from two frames
-        self.fusion_conv = nn.Conv2d(2, 1, kernel_size=1, stride=1, padding=0)
-        self.two_frame = True  
+        # Separate fusion conv for each dual-frame mode
+        self.fusion_conv_pose = nn.Conv2d(2,1,kernel_size=1,stride=1,padding=0)
+        self.fusion_conv_optical_flow = nn.Conv2d(2,1,kernel_size=1,stride=1,padding=0)
+        self.fusion_conv_appearance_flow = nn.Conv2d(2,1,kernel_size=1,stride=1,padding=0)
+        # Mode state: default depth (no fusion)
+        self.current_mode = "depth"
+        self.two_frame = False  
     
-    def set_two_frame_mode(self, mode):
-        self.two_frame = mode
+    def set_mode(self, mode):
+        """Switch embedding mode: 'depth' (single-frame) or one of dual-frame modes"""
+        self.current_mode = mode
+        self.two_frame = (mode != "depth")
     def forward(self, x):
         if not self.two_frame:
-            # Single frame mode - use original embeddings
+            # single-frame embedding
             return self.embeddings_a(x)
+        # dual-frame: split and embed
+        C = x.shape[1]
+        x1, x2 = torch.split(x, C//2, dim=1)
+        e1 = self.embeddings_a(x1)
+        e2 = self.embeddings_b(x2)
+        stacked = torch.stack([e1, e2], dim=1)
+        # select fusion conv per mode
+        if self.current_mode == "pose":
+            fused = self.fusion_conv_pose(stacked)
+        elif self.current_mode == "optical_flow":
+            fused = self.fusion_conv_optical_flow(stacked)
+        elif self.current_mode == "appearance_flow":
+            fused = self.fusion_conv_appearance_flow(stacked)
         else:
-            # Two frame mode
-            B, C, H, W = x.shape
-            x1, x2 = torch.split(x, C//2, dim=1)
-            
-            embeddings1 = self.embeddings_a(x1)
-            embeddings2 = self.embeddings_b(x2)
-            
-            # Stack embeddings along a new dimension
-            stacked = torch.stack([embeddings1, embeddings2], dim=1)  
-            fused = self.fusion_conv(stacked)
-            return fused.squeeze(1) 
+            raise ValueError(f"Unsupported fusion mode: {self.current_mode}")
+        return fused.squeeze(1)
+    def set_trainable(self):
+        """Set trainable state for embeddings"""
+        for param in self.fusion_conv_pose.parameters():
+            param.requires_grad = True
+        for param in self.fusion_conv_optical_flow.parameters():
+            param.requires_grad = True
+        for param in self.fusion_conv_appearance_flow.parameters():
+            param.requires_grad = True
 
 class DepthAnythingDepthEstimationHead(nn.Module):
     def __init__(self, model_head):
@@ -77,7 +94,7 @@ class DepthAnythingPoseEstimationHead(nn.Module):
                  simplified_intrinsic=False,
                  image_width=None,
                  image_height=None,
-                 scale_range=(1e-3, 1e3)):
+                 scale_range=(1e-2, 1e2)):
         super().__init__()
         self.num_frames_to_predict_for = num_frames_to_predict_for
         self.predict_intrinsics = predict_intrinsics
@@ -101,7 +118,7 @@ class DepthAnythingPoseEstimationHead(nn.Module):
         # Simplified scale prediction path
         self.scale_pool = nn.AdaptiveAvgPool2d(1)
         self.scale_fc = nn.Linear(256, num_frames_to_predict_for)
-        self.scale_sigmoid = nn.Sigmoid()
+        self.scale_func = nn.Sigmoid()
         
         if predict_intrinsics:
             # Simplified intrinsics prediction path
@@ -127,7 +144,9 @@ class DepthAnythingPoseEstimationHead(nn.Module):
         # NOTE new compoents: dynamic scale prediction
         scale_feat = self.scale_pool(features).view(features.size(0), -1)
         dynamic_scale = self.scale_fc(scale_feat)
-        dynamic_scale = self.scale_sigmoid(dynamic_scale) * self.scele_range[1] + self.scele_range[0]
+        # Use exponential scaling for precise magnitude control
+        min_scale, max_scale = self.scele_range
+        dynamic_scale = 0.001 * min_scale * (max_scale / min_scale) ** self.scale_func(dynamic_scale)
         
         # Apply dynamic scaling
         pose_out = pose_out.view(-1, self.num_frames_to_predict_for, 6)
@@ -168,29 +187,39 @@ class LightOpticalFlowEstimationHead(nn.Module):
     """轻量化光流估计Head，输出2通道光流，结构简洁"""
     def __init__(self, in_channels=64, out_channels=2):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        # Increased capacity: three conv layers
+        self.conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(32, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(128, 64, kernel_size=3, padding=1)
+        self.act2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(64, out_channels, kernel_size=3, padding=1)
     def forward(self, hidden_states, height, width):
         x = self.conv1(hidden_states)
+        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
         x = self.act1(x)
         x = self.conv2(x)
-        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
+        x = self.act2(x)
+        x = self.conv3(x)
         return x
 
 class LightAppearanceFlowEstimationHead(nn.Module):
     """轻量化外观流估计Head，输出3通道，结构简洁"""
     def __init__(self, in_channels=64, out_channels=3):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        # Increased capacity: three conv layers
+        self.conv1 = nn.Conv2d(in_channels, 128, kernel_size=3, padding=1)
         self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(32, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(128, 64, kernel_size=3, padding=1)
+        self.act2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(64, out_channels, kernel_size=3, padding=1)
         self.tanh = nn.Tanh()
     def forward(self, hidden_states, height, width):
         x = self.conv1(hidden_states)
+        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
         x = self.act1(x)
         x = self.conv2(x)
-        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
+        x = self.act2(x)
+        x = self.conv3(x)
         x = self.tanh(x)
         return x
 
@@ -201,7 +230,7 @@ class DARES_MH(nn.Module):
         return model_head.conv1.in_channels
 
     def __init__(self, 
-                 r=[14,14,12,12,10,10,8,8,8,8,8,8], 
+                 r=8, 
                  target_modules=['query', 'value'],
                  pretrained_path=None,
                  use_dora=True, 
@@ -230,10 +259,10 @@ class DARES_MH(nn.Module):
             config = LoraConfig(
                 task_type=TaskType.FEATURE_EXTRACTION,
                 inference_mode=False,
-                r=r[0],
+                r=r,
                 lora_alpha=16,
                 lora_dropout=0.1,
-                target_modules=target_modules,
+                target_modules=target_modules + ['fc2'],
                 use_dora=use_dora,
             )
             if mode == "depth":
@@ -285,11 +314,10 @@ class DARES_MH(nn.Module):
             raise ValueError(f"Unknown mode: {mode}, available: {list(self.adapter_map.keys())}")
         adapter_name = self.adapter_map[mode]
         if self.current_adapter != adapter_name:
-            self.backbone.set_adapter(adapter_name)
+            self.set_adapter_no_grad_change(adapter_name)
             self.current_adapter = adapter_name
         # 深度模式用单帧embedding，其余用双帧
-        use_two_frame = (mode != "depth")
-        self.backbone.embeddings.set_two_frame_mode(use_two_frame)
+        self.backbone.embeddings.set_mode(mode)
         outputs = self.backbone.forward_with_filtered_kwargs(
             pixel_values, output_hidden_states=None, output_attentions=None
         )
@@ -325,13 +353,28 @@ class DARES_MH(nn.Module):
             return out
         else:
             raise ValueError(f"Unknown mode: {mode}, available: {self.available_heads}")
+    
+    def set_adapter_no_grad_change(self, adapter_name):
+        """
+        Set the active adapter(s) for the model without changing requires_grad of any parameters.
+        Args:
+            adapter_name (str or List[str]): The name of the adapter(s) to be activated.
+        """
+        # Save current requires_grad state
+        grad_state = {name: param.requires_grad for name, param in self.backbone.named_parameters()}
+        self.backbone.set_adapter(adapter_name)
+        self.current_adapter = adapter_name
+        # Restore requires_grad state
+        for name, param in self.backbone.named_parameters():
+            if name in grad_state:
+                param.requires_grad = grad_state[name]
 # %% 
 
 if __name__ == "__main__":
     test_input = torch.randn(1, 3, 256, 320)
     test_dual_frame_input = torch.randn(1, 6, 256, 320)  # Two frames concatenated
     model_dora = DARES_MH(
-        r=[14,14,12,12,10,10,8,8,8,8,8,8],
+        r=8,
         target_modules=['query', 'value'],
         use_dora=True,
         heads=["depth", "pose", "optical_flow", "appearance_flow"]
