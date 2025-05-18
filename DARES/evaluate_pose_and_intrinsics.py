@@ -358,7 +358,7 @@ def visualize_intrinsics_errors(errors, output_dir, name_prefix=""):
 
 # ----- UNIFIED EVALUATION FUNCTION -----
 
-def evaluate(opt, ds_path, load_weights_folder, dataset_name="SCARED", pose_seq=1, 
+def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1, 
              evaluate_pose=True, evaluate_intrinsics=True, 
              gt_path=None, filename_list_path=None,
              pose_encoder_class=AttentionalResnetEncoder, pose_decoder_class=PoseDecoder_i):
@@ -366,7 +366,6 @@ def evaluate(opt, ds_path, load_weights_folder, dataset_name="SCARED", pose_seq=
     
     Args:
         opt: Options object containing configuration
-        ds_path: Path to dataset
         load_weights_folder: Path to folder containing model weights
         dataset_name: Name of the dataset for result reporting
         pose_seq: Pose sequence number (if applicable)
@@ -378,13 +377,31 @@ def evaluate(opt, ds_path, load_weights_folder, dataset_name="SCARED", pose_seq=
     Returns:
         Dictionary with evaluation results
     """
+    # 获取数据集路径
+    from exps.exp_setup_local import ds_base
+    if dataset_name == 'SCARED':
+        ds_path = os.path.join(ds_base, 'SCARED_Images_Resized')
+    elif dataset_name in ['SyntheticColon', 'C3VD']:
+        ds_path = os.path.join(ds_base, f'{dataset_name}_as_SCARED')
+    else:
+        raise ValueError(f"Unknown dataset_name: {dataset_name}")
+    
     assert os.path.isdir(load_weights_folder), \
         f"Cannot find a folder at {load_weights_folder}"
     
     # Setup dataset and dataloader
     if filename_list_path is None:
-        filename_list_path = os.path.join(ds_path, "splits",
-                                       f"test_files_sequence{pose_seq}.txt")
+        if dataset_name == 'SCARED':
+            filename_list_path = os.path.join(ds_path, "splits", f"test_files_sequence{pose_seq}.txt")
+        elif dataset_name in ['SyntheticColon', 'C3VD']:
+            # 默认使用第一个test folder
+            test_folders_file = os.path.join(ds_path, 'splits', 'test_folders.txt')
+            with open(test_folders_file, 'r') as f:
+                test_folders = f.readlines()
+            test_folder = test_folders[0].strip()
+            filename_list_path = os.path.join(ds_path, test_folder, 'traj_test.txt')
+        else:
+            raise ValueError(f"Unknown dataset_name: {dataset_name}")
     
     print(f"Using test files list: {filename_list_path}")
     filenames = readlines(filename_list_path)
@@ -693,8 +710,7 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                     print(f"Evaluating model {i} on SCARED Trajectory {seq}")
                     results = evaluate(
                         opt, 
-                        os.path.join(ds_base, 'SCARED_Images_Resized'),
-                        f'{model_dir}/weights_{i}', 
+                        f'{model_dir}/weights_{i}',
                         dataset_name='SCARED',
                         pose_seq=seq,
                         evaluate_pose=True,
@@ -711,7 +727,7 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                         if 'intrinsics_error' in results:
                             best_intrinsics_errors = results['intrinsics_error']
                             best_mean_pred_intrinsics = results['mean_pred_intrinsics']
-                        
+                
                 print(f"SCARED Traj {seq}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}")
                 f_result.write(f"SCARED Traj {seq}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}\n")
                 
@@ -727,8 +743,7 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                 
         elif dataset_name in ['SyntheticColon', 'C3VD']:
             # -- SyntheticColon or C3VD --
-            dataset_path = os.path.join(ds_base, f'{dataset_name}_as_SCARED')
-            test_folders_file = os.path.join(dataset_path, 'splits', 'test_folders.txt')
+            test_folders_file = os.path.join(model_dir, 'splits', 'test_folders.txt')
             
             with open(test_folders_file, 'r') as f:
                 test_folders = f.readlines()
@@ -755,11 +770,9 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                 print(f"Evaluating model {i} on {dataset_name}")
                 
                 for test_folder in tqdm(test_folders, desc=f"Evaluating test folders"):
-                    full_test_folder = os.path.join(dataset_path, test_folder.strip())
-                    
+                    full_test_folder = os.path.join(model_dir, test_folder.strip())
                     results = evaluate(
                         opt, 
-                        dataset_path,
                         f'{model_dir}/weights_{i}',
                         dataset_name=dataset_name,
                         pose_seq=1,  # Not used for synthetic datasets
@@ -791,13 +804,11 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                         for key in all_intrinsics_results[0]:
                             if key != 'errors':  # Skip raw error data
                                 combined_errors[key] = np.mean([result[key] for result in all_intrinsics_results])
-                        
                         best_intrinsics_errors = combined_errors
-                        
                         # Get mean predicted intrinsics from last result (as an example)
                         if 'mean_pred_intrinsics' in results:
                             best_mean_pred_intrinsics = results['mean_pred_intrinsics']
-                
+            
             print(f"{dataset_name}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}")
             f_result.write(f"{dataset_name}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}\n")
             
@@ -844,7 +855,6 @@ if __name__ == "__main__":
         print(f"Evaluating SCARED sequence {args.pose_seq} with weights_{args.weights}")
         evaluate(
             AttnEncoderOpt,
-            os.path.join(ds_base, 'SCARED_Images_Resized'), 
             f'{args.model_dir}/weights_{args.weights}',
             dataset_name='SCARED',
             pose_seq=args.pose_seq,
@@ -853,18 +863,15 @@ if __name__ == "__main__":
         )
     elif args.weights is not None and args.dataset in ['SyntheticColon', 'C3VD']:
         print(f"Evaluating {args.dataset} with weights_{args.weights}")
+        from exps.exp_setup_local import ds_base
         dataset_path = os.path.join(ds_base, f'{args.dataset}_as_SCARED')
         test_folders_file = os.path.join(dataset_path, 'splits', 'test_folders.txt')
-        
         with open(test_folders_file, 'r') as f:
             test_folders = f.readlines()[:1]  # Just evaluate first test folder
-            
         test_folder = test_folders[0].strip()
         full_test_folder = os.path.join(dataset_path, test_folder)
-        
         evaluate(
             AttnEncoderOpt,
-            dataset_path,
             f'{args.model_dir}/weights_{args.weights}',
             dataset_name=args.dataset,
             evaluate_pose=evaluate_pose,
