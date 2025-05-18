@@ -13,7 +13,7 @@ from peft import (
 
 class DualFrameEmbeddings(nn.Module):
     def __init__(self, original_embeddings):
-        super(DualFrameEmbeddings, self).__init__()
+        super(DualFrameEmbeddings, self).__init__() 
         self.embeddings_a = original_embeddings
         # Deep copy the original embeddings for the second frame
         self.embeddings_b = copy.deepcopy(original_embeddings)
@@ -68,14 +68,15 @@ class DepthAnythingDepthEstimationHead(nn.Module):
 class DepthAnythingPoseEstimationHead(nn.Module):
     def __init__(self, 
                  num_frames_to_predict_for=1,
-                 predict_intrinsics=False,
+                 predict_intrinsics=True,
                  simplified_intrinsic=False,
                  image_width=None,
-                 image_height=None):
+                 image_height=None,
+                 scale_range=(1e-3, 1e3)):
         super().__init__()
         self.num_frames_to_predict_for = num_frames_to_predict_for
         self.predict_intrinsics = predict_intrinsics
-        
+        self.scele_range = scale_range
         if predict_intrinsics:
             assert image_width is not None and image_height is not None, \
                 "image_width and image_height must be provided if predict_intrinsics is True"
@@ -88,7 +89,7 @@ class DepthAnythingPoseEstimationHead(nn.Module):
                 self.num_param_to_predict = 4
         
         # Reduced to just one main convolutional layer instead of two
-        self.conv = nn.Conv2d(256, 256, kernel_size=3, padding=1)
+        self.conv = nn.Conv2d(64, 256, kernel_size=3, padding=1)
         self.activation = nn.ReLU()
         self.pose_conv = nn.Conv2d(256, 6 * num_frames_to_predict_for, kernel_size=1)
         
@@ -121,12 +122,12 @@ class DepthAnythingPoseEstimationHead(nn.Module):
         # NOTE new compoents: dynamic scale prediction
         scale_feat = self.scale_pool(features).view(features.size(0), -1)
         dynamic_scale = self.scale_fc(scale_feat)
-        dynamic_scale = self.scale_sigmoid(dynamic_scale) * 10.0 + 0.1  # Scale between 0.1 and 10.1
+        dynamic_scale = self.scale_sigmoid(dynamic_scale) * self.scele_range[1] + self.scele_range[0]
         
         # Apply dynamic scaling
         pose_out = pose_out.view(-1, self.num_frames_to_predict_for, 6)
         dynamic_scale = dynamic_scale.unsqueeze(-1)  # [B, num_frames, 1]
-        pose_out = 0.001 * dynamic_scale * pose_out
+        pose_out = dynamic_scale * pose_out
         pose_out = pose_out.view(-1, self.num_frames_to_predict_for, 1, 6)
         
         axisangle = pose_out[..., :3]
@@ -157,15 +158,53 @@ class DepthAnythingPoseEstimationHead(nn.Module):
         else:
             return axisangle, translation
 
+
+class LightOpticalFlowEstimationHead(nn.Module):
+    """轻量化光流估计Head，输出2通道光流，结构简洁"""
+    def __init__(self, in_channels=64, out_channels=2):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        self.act1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(32, out_channels, kernel_size=3, padding=1)
+    def forward(self, hidden_states, height, width):
+        x = self.conv1(hidden_states)
+        x = self.act1(x)
+        x = self.conv2(x)
+        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
+        return x
+
+class LightAppearanceFlowEstimationHead(nn.Module):
+    """轻量化外观流估计Head，输出3通道，结构简洁"""
+    def __init__(self, in_channels=64, out_channels=3):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        self.act1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(32, out_channels, kernel_size=3, padding=1)
+        self.tanh = nn.Tanh()
+    def forward(self, hidden_states, height, width):
+        x = self.conv1(hidden_states)
+        x = self.act1(x)
+        x = self.conv2(x)
+        x = nn.functional.interpolate(x, (int(height), int(width)), mode="bilinear", align_corners=True)
+        x = self.tanh(x)
+        return x
+
 class DARES(nn.Module):
+    def hidden_states_channels(self,model_head):
+        # 假设与DepthAnythingDepthEstimationHead输入一致
+        # 取conv1的输入通道
+        return model_head.conv1.in_channels
+
     def __init__(self, 
                  r=[14,14,12,12,10,10,8,8,8,8,8,8], 
                  target_modules=['query', 'value'],
                  pretrained_path=None,
                  use_dora=True, 
-                 full_finetune=False):
+                 full_finetune=False,
+                 image_size=(256, 320),
+                 heads=["depth", "pose"]):
         super(DARES, self).__init__()
-        
+        self.image_size = image_size
         # Load base model
         base_model = DepthAnythingForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Small-hf")
         self.config = base_model.config
@@ -174,91 +213,78 @@ class DARES(nn.Module):
         # Change the backbone to support two-frame input
         original_embeddings = self.backbone.embeddings
         self.backbone.embeddings = DualFrameEmbeddings(original_embeddings)
-        
-        # Configure PEFT with DoRA support for single-frame mode
-        single_frame_config = LoraConfig(
-            task_type=TaskType.FEATURE_EXTRACTION,
-            inference_mode=False,
-            r=r[0],  # Using first r value as default
-            lora_alpha=16,
-            lora_dropout=0.1,
-            target_modules=target_modules,
-            use_dora=use_dora,
-            
-        )
-        # Apply PEFT to backbone for single-frame mode
-        self.backbone = get_peft_model(self.backbone, single_frame_config, adapter_name="single_frame")
-        
-        # Configure PEFT with DoRA support for dual-frame mode
-        dual_frame_config = LoraConfig(
-            task_type=TaskType.FEATURE_EXTRACTION,
-            inference_mode=False,
-            r=r[0],  # Using first r value as default
-            lora_alpha=16,
-            lora_dropout=0.1,
-            target_modules=target_modules,
-            use_dora=use_dora,
-        )
-        
-        # Add another adapter for dual-frame mode
-        self.backbone.add_adapter("dual_frame", dual_frame_config)
-        
-        # Default to single-frame mode
-        self.backbone.set_adapter("single_frame")
-        
+
+        # 配置4个adapter，分别对应4种模式
+        self.adapter_map = {
+            "depth": "adapter_depth",
+            "pose": "adapter_pose",
+            "optical_flow": "adapter_optical_flow",
+            "appearance_flow": "adapter_appearance_flow"
+        }
+        for mode, adapter_name in self.adapter_map.items():
+            config = LoraConfig(
+                task_type=TaskType.FEATURE_EXTRACTION,
+                inference_mode=False,
+                r=r[0],
+                lora_alpha=16,
+                lora_dropout=0.1,
+                target_modules=target_modules,
+                use_dora=use_dora,
+            )
+            if mode == "depth":
+                self.backbone = get_peft_model(self.backbone, config, adapter_name=adapter_name)
+            else:
+                self.backbone.add_adapter(adapter_name, config)
+        # 默认使用depth adapter
+        self.backbone.set_adapter(self.adapter_map["depth"])
+        self.current_adapter = self.adapter_map["depth"]
+
         # Freeze base model parameters
         for param in self.backbone.parameters():
             param.requires_grad = full_finetune
-            
-        # Unfreeze LoRA/DoRA parameters for both adapters
+        # Unfreeze LoRA/DoRA parameters for all adapters
         for name, param in self.backbone.named_parameters():
             if "lora" in name or (use_dora and "dora" in name):
                 param.requires_grad = True
-        
         if pretrained_path is not None:
             state_dict = torch.load(pretrained_path, weights_only=True)
             base_model.load_state_dict(state_dict, strict=False)
-            
         self.neck = base_model.neck
         for param in self.neck.parameters():
             param.requires_grad = full_finetune
         model_head = base_model.head
-        self.head = DepthAnythingDepthEstimationHead(model_head)
-        
-        self.current_adapter = "single_frame"
+        # 动态初始化head
+        self.heads_dict = nn.ModuleDict()
+        self.available_heads = []
+        if "depth" in heads:
+            self.heads_dict["depth"] = DepthAnythingDepthEstimationHead(model_head)
+            self.available_heads.append("depth")
+        if "pose" in heads:
+            self.heads_dict["pose"] = DepthAnythingPoseEstimationHead(
+                num_frames_to_predict_for=1,
+                predict_intrinsics=True,
+                image_width=self.image_size[0],
+                image_height=self.image_size[1]
+            )
+            self.available_heads.append("pose")
+        if "optical_flow" in heads:
+            self.heads_dict["optical_flow"] = LightOpticalFlowEstimationHead(in_channels=self.hidden_states_channels(model_head))
+            self.available_heads.append("optical_flow")
+        if "appearance_flow" in heads:
+            self.heads_dict["appearance_flow"] = LightAppearanceFlowEstimationHead(in_channels=self.hidden_states_channels(model_head))
+            self.available_heads.append("appearance_flow")
 
-    def save_parameters(self, filename: str, adapter_name=None) -> None:
-        """Save PEFT parameters"""
-        if adapter_name is None:
-            # Save both adapters
-            self.backbone.save_pretrained(filename)
-            print(f'Saved both single-frame and dual-frame parameters to {filename}')
-        else:
-            # Save specific adapter
-            self.backbone.save_adapter(filename, adapter_name)
-            print(f'Saved {adapter_name} parameters to {filename}')
-
-    def load_parameters(self, filename: str, adapter_name=None) -> None:
-        """Load PEFT parameters"""
-        if adapter_name is None:
-            # Load both adapters
-            self.backbone.load_adapter(filename)
-            print(f'Loaded both single-frame and dual-frame parameters from {filename}')
-        else:
-            # Load specific adapter
-            self.backbone.load_adapter(filename, adapter_name)
-            print(f'Loaded {adapter_name} parameters from {filename}')
-
-    def forward(self, pixel_values, two_frame=False):
-        # Set the appropriate adapter based on the input mode
-        adapter_name = "dual_frame" if two_frame else "single_frame"
+    def forward(self, pixel_values, mode="depth"):
+        # 根据mode自动切换adapter和embedding帧数
+        if mode not in self.adapter_map:
+            raise ValueError(f"Unknown mode: {mode}, available: {list(self.adapter_map.keys())}")
+        adapter_name = self.adapter_map[mode]
         if self.current_adapter != adapter_name:
             self.backbone.set_adapter(adapter_name)
             self.current_adapter = adapter_name
-            
-        # Set the embedding mode
-        self.backbone.embeddings.set_two_frame_mode(two_frame)
-        
+        # 深度模式用单帧embedding，其余用双帧
+        use_two_frame = (mode != "depth")
+        self.backbone.embeddings.set_two_frame_mode(use_two_frame)
         outputs = self.backbone.forward_with_filtered_kwargs(
             pixel_values, output_hidden_states=None, output_attentions=None
         )
@@ -268,55 +294,77 @@ class DARES(nn.Module):
         patch_height = height // patch_size
         patch_width = width // patch_size
         hidden_states = self.neck(hidden_states, patch_height, patch_width)
-        
-        outputs = {}
-        outputs[("disp", 0)] = self.head(hidden_states[3], height, width)
-        outputs[("disp", 1)] = self.head(hidden_states[2], height/2, width/2)
-        outputs[("disp", 2)] = self.head(hidden_states[1], height/4, width/4)
-        outputs[("disp", 3)] = self.head(hidden_states[0], height/8, width/8)
-
-        return outputs
-
+        # 选择head进行推理
+        if mode == "depth":
+            out = {}
+            out[("disp", 0)] = self.heads_dict["depth"](hidden_states[3], height, width)
+            out[("disp", 1)] = self.heads_dict["depth"](hidden_states[2], height/2, width/2)
+            out[("disp", 2)] = self.heads_dict["depth"](hidden_states[1], height/4, width/4)
+            out[("disp", 3)] = self.heads_dict["depth"](hidden_states[0], height/8, width/8)
+            return out
+        elif mode == "pose":
+            return self.heads_dict["pose"](hidden_states[3], height, width)
+        elif mode == "optical_flow":
+            return self.heads_dict["optical_flow"](hidden_states[3], height, width)
+        elif mode == "appearance_flow":
+            return self.heads_dict["appearance_flow"](hidden_states[3], height, width)
+        else:
+            raise ValueError(f"Unknown mode: {mode}, available: {self.available_heads}")
 # %% 
 
 if __name__ == "__main__":
     test_input = torch.randn(1, 3, 256, 320)
+    test_dual_frame_input = torch.randn(1, 6, 256, 320)  # Two frames concatenated
     model_dora = DARES(
         r=[14,14,12,12,10,10,8,8,8,8,8,8],
         target_modules=['query', 'value'],
-        use_dora=True
+        use_dora=True,
+        heads=["depth", "pose", "optical_flow", "appearance_flow"]
     )
-    print("\nTesting DoRA model:")
-    output_dora = model_dora(test_input)
-    print(output_dora[("disp", 0)].shape)
+    print("\nTesting DoRA model (depth mode):")
+    output_dora = model_dora(test_input, mode="depth")
+    print(f"Depth output shape: {output_dora[('disp', 0)].shape}")
 
+    print("\nTesting pose mode:")
+    pose_out = model_dora(test_dual_frame_input, mode="pose")
+    if isinstance(pose_out, tuple):
+        print(f"Axis-angle shape: {pose_out[0].shape}")
+        print(f"Translation shape: {pose_out[1].shape}")
+        print(f"Intrinsics shape: {pose_out[2].shape if len(pose_out) > 2 else 'N/A'}")
+    else:
+        print(f"Pose output shape: {pose_out.shape}")
+
+    print("\nTesting optical flow mode:")
+    flow_out = model_dora(test_dual_frame_input, mode="optical_flow")
+    print(f"Optical flow output shape: {flow_out.shape}")
+
+    print("\nTesting appearance flow mode:")
+    af_out = model_dora(test_dual_frame_input, mode="appearance_flow")
+    print(f"Appearance flow output shape: {af_out.shape}")
+
+    # Test single frame input (depth)
+    print("\nTesting single frame input (depth mode):")
+    single_frame_input = torch.randn(8, 3, 256, 320)
+    single_frame_output = model_dora(single_frame_input, mode="depth")
+    print(f"Single frame output shape: {single_frame_output[('disp', 0)].shape}")
+
+    # Test two frame input (other modes)
+    print("\nTesting two frame input (pose mode):")
+    frame1 = torch.randn(8, 3, 256, 320)
+    frame2 = torch.randn(8, 3, 256, 320)
+    two_frame_input = torch.cat([frame1, frame2], dim=1)  # [8, 6, 256, 320]
+    pose_out = model_dora(two_frame_input, mode="pose")
+    if isinstance(pose_out, tuple):
+        print(f"Axis-angle shape: {pose_out[0].shape}")
+        print(f"Translation shape: {pose_out[1].shape}")
+        print(f"Intrinsics shape: {pose_out[2].shape if len(pose_out) > 2 else 'N/A'}")
+    else:
+        print(f"Pose output shape: {pose_out.shape}")
+    print("\nTesting two frame input (optical_flow mode):")
+    flow_out = model_dora(two_frame_input, mode="optical_flow")
+    print(f"Optical flow output shape: {flow_out.shape}")
+    print("\nTesting two frame input (appearance_flow mode):")
+    af_out = model_dora(two_frame_input, mode="appearance_flow")
+    print(f"Appearance flow output shape: {af_out.shape}")
 # %%
-print(model_dora.backbone.embeddings)
-'''
-Dinov2Embeddings(
-  (patch_embeddings): Dinov2PatchEmbeddings(
-    (projection): Conv2d(3, 384, kernel_size=(14, 14), stride=(14, 14))
-  )
-  (dropout): Dropout(p=0.0, inplace=False)
-)
-'''
 
-# Replace the backbone embeddings with our dual frame embeddings
-
-# %%
-# Test single frame input
-print("\nTesting single frame input:")
-single_frame_input = torch.randn(2, 3, 256, 320)
-model_dora.backbone.embeddings.set_two_frame_mode(False)
-single_frame_output = model_dora(single_frame_input)
-print(f"Single frame output shape: {single_frame_output[('disp', 0)].shape}")
-
-# Test two frame input (concatenated along channel dimension)
-print("\nTesting two frame input:")
-frame1 = torch.randn(2, 3, 256, 320)
-frame2 = torch.randn(2, 3, 256, 320)
-two_frame_input = torch.cat([frame1, frame2], dim=1)  # Concatenate along channel dimension to get [1, 6, 256, 320]
-print(f"Two frame input shape: {two_frame_input.shape}")
-model_dora.backbone.embeddings.set_two_frame_mode(True)
-two_frame_output = model_dora(two_frame_input, two_frame=True)
-print(f"Two frame output shape: {two_frame_output[('disp', 0)].shape}")
