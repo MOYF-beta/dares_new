@@ -1,4 +1,9 @@
 # %%
+
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../DARES')))
+
 from transformers import DepthAnythingForDepthEstimation
 import torch
 import torch.nn as nn
@@ -189,7 +194,7 @@ class LightAppearanceFlowEstimationHead(nn.Module):
         x = self.tanh(x)
         return x
 
-class DARES(nn.Module):
+class DARES_MH(nn.Module):
     def hidden_states_channels(self,model_head):
         # 假设与DepthAnythingDepthEstimationHead输入一致
         # 取conv1的输入通道
@@ -203,7 +208,7 @@ class DARES(nn.Module):
                  full_finetune=False,
                  image_size=(256, 320),
                  heads=["depth", "pose"]):
-        super(DARES, self).__init__()
+        super(DARES_MH, self).__init__()
         self.image_size = image_size
         # Load base model
         base_model = DepthAnythingForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Small-hf")
@@ -305,9 +310,19 @@ class DARES(nn.Module):
         elif mode == "pose":
             return self.heads_dict["pose"](hidden_states[3], height, width)
         elif mode == "optical_flow":
-            return self.heads_dict["optical_flow"](hidden_states[3], height, width)
+            out = {}
+            out[("flow", 0)] = self.heads_dict["optical_flow"](hidden_states[3], height, width)
+            out[("flow", 1)] = self.heads_dict["optical_flow"](hidden_states[2], height/2, width/2)
+            out[("flow", 2)] = self.heads_dict["optical_flow"](hidden_states[1], height/4, width/4)
+            out[("flow", 3)] = self.heads_dict["optical_flow"](hidden_states[0], height/8, width/8)
+            return out
         elif mode == "appearance_flow":
-            return self.heads_dict["appearance_flow"](hidden_states[3], height, width)
+            out = {}
+            out[("transform", 0)] = self.heads_dict["appearance_flow"](hidden_states[3], height, width)
+            out[("transform", 1)] = self.heads_dict["appearance_flow"](hidden_states[2], height/2, width/2)
+            out[("transform", 2)] = self.heads_dict["appearance_flow"](hidden_states[1], height/4, width/4)
+            out[("transform", 3)] = self.heads_dict["appearance_flow"](hidden_states[0], height/8, width/8)
+            return out
         else:
             raise ValueError(f"Unknown mode: {mode}, available: {self.available_heads}")
 # %% 
@@ -315,7 +330,7 @@ class DARES(nn.Module):
 if __name__ == "__main__":
     test_input = torch.randn(1, 3, 256, 320)
     test_dual_frame_input = torch.randn(1, 6, 256, 320)  # Two frames concatenated
-    model_dora = DARES(
+    model_dora = DARES_MH(
         r=[14,14,12,12,10,10,8,8,8,8,8,8],
         target_modules=['query', 'value'],
         use_dora=True,
@@ -366,5 +381,3 @@ if __name__ == "__main__":
     print("\nTesting two frame input (appearance_flow mode):")
     af_out = model_dora(two_frame_input, mode="appearance_flow")
     print(f"Appearance flow output shape: {af_out.shape}")
-# %%
-
