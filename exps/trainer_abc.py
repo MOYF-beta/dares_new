@@ -431,19 +431,6 @@ class Trainer(ABC):
             return 0
         depth_pred = outputs[("depth", 0, 0)] * self.opt.max_depth
         mask = (depth_gt > self.opt.min_depth) & (depth_gt < self.opt.max_depth)
-        
-        # if debug:
-        #     import matplotlib.pyplot as plt
-        #     plt.figure(figsize=(10, 5))
-        #     plt.subplot(1, 2, 1)
-        #     plt.title("Predicted Depth")
-        #     plt.imshow(depth_pred.detach().cpu().numpy()[0, 0], cmap='plasma')
-        #     plt.colorbar()
-        #     plt.subplot(1, 2, 2)
-        #     plt.title("Ground Truth Depth")
-        #     plt.imshow(depth_gt.detach().cpu().numpy()[0, 0], cmap='plasma')
-        #     plt.colorbar()
-        #     plt.show()
             
         depth_pred = depth_pred[mask]
         depth_gt = depth_gt[mask]

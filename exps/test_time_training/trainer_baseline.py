@@ -1,36 +1,24 @@
 import os
 import torch
-from DARES.networks.dares_peft import DARES
-from DARES.networks.resnet_encoder import AttentionalResnetEncoder,MultiHeadAttentionalResnetEncoder
-from DARES.networks.pose_decoder import KNNPoseDecoder_with_intrinsics as PoseDecoder_i
+from DARES.networks.dares import DARES
+from DARES.networks.resnet_encoder import ResnetEncoder
+from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 from DARES.networks.optical_flow_decoder import PositionDecoder
 from DARES.networks.appearance_flow_decoder import TransformDecoder
 from exps.trainer_abc import Trainer
 
-class TrainerAttnEncoder(Trainer):
+class TrainerBaseline(Trainer):
     def load_model(self):
         # Initialize depth model
         encoders = {
-            "depth_model": DARES(use_dora=True,target_modules=['query', 'value']),
-            "pose_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
-            "position_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
-            "transform_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
+            "depth_model": DARES(),
+            "pose_encoder": ResnetEncoder(self.opt.num_layers, False, num_input_images=self.num_pose_frames),
+            "position_encoder": ResnetEncoder(self.opt.num_layers, False, num_input_images=2),
+            "transform_encoder": ResnetEncoder(self.opt.num_layers, False, num_input_images=2)
         }
 
         decoders = {
-            "pose": PoseDecoder_i(
-                encoders["pose_encoder"].num_ch_enc, 
-                image_width=self.opt.width, 
-                image_height=self.opt.height, 
-                predict_intrinsics=self.opt.learn_intrinsics, 
-                simplified_intrinsic=self.opt.simplified_intrinsic, 
-                num_input_features=1, 
-                num_frames_to_predict_for=2,
-                auto_scale=True,
-                use_knn=True,
-                knn_k=5,
-                knn_temperature=1.0
-            ),
+            "pose": PoseDecoder_i(encoders["pose_encoder"].num_ch_enc, image_width=self.opt.width, image_height=self.opt.height, predict_intrinsics=self.opt.learn_intrinsics, simplified_intrinsic=self.opt.simplified_intrinsic, num_input_features=1, num_frames_to_predict_for=2),
             "position": PositionDecoder(encoders["position_encoder"].num_ch_enc, self.opt.scales),
             "transform": TransformDecoder(encoders["transform_encoder"].num_ch_enc, self.opt.scales)
         }

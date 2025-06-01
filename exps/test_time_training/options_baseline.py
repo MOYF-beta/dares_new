@@ -21,13 +21,13 @@ DefaultOpt_dict = {
         "other_frame_init_weight" : 1e-5,
 
         # OPTIMIZATION options
-        "batch_size": 9,
+        "batch_size": 10,
         "learning_rate": 1e-4,
         "weight_decay": 1e-6,
-        "weight_decay_pose" : 1e-6,
         "pos_learning_rate": 1e-4,
-        "num_epochs": 20,
+        "num_epochs": 10,
         "scheduler_step_size": 10,
+        "weight_decay_pose" : 1e-6,
 
         # ABLATION options
         "learn_intrinsics" : True,
@@ -44,6 +44,7 @@ DefaultOpt_dict = {
 
         # LOADING options
         "load_weights_folder": None,
+
 
         # LOGGING options
         "log_frequency": 100,
@@ -82,4 +83,4 @@ class DotDict(dict):
     def __delattr__(self, attr):
         del self[attr]
 
-AttnEncoderOpt = DotDict(DefaultOpt_dict)
+BaselineOpt = DotDict(DefaultOpt_dict)

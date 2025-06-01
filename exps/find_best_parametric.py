@@ -7,7 +7,8 @@ from exps.dataset import DataLoaderX as DataLoader
 from exps.options import DotDict
 from exps.exp_setup_local import log_path
 
-def find_best_parametric(model_loader_fn, model_name, only_keep_best=False, ds_name='SCARED', dataset=None, eval_kwargs=None):
+def find_best_parametric(model_loader_fn, model_name, only_keep_best=False, ds_name='SCARED',
+                          dataset=None, eval_kwargs=None, peft=True, pose_seq=1):
     import sys
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../DARES')))
     from DARES import evaluate_pose_and_intrinsics
@@ -26,10 +27,11 @@ def find_best_parametric(model_loader_fn, model_name, only_keep_best=False, ds_n
         else:
             from DARES.evaluate_depth import evaluate
         test_dataloader = DataLoader(dataset, 16, shuffle=False, pin_memory=True, drop_last=False, num_workers=10)
-        depth_model = model_loader_fn(opt_dict, weight_path)
+        depth_model = model_loader_fn(opt_dict, weight_path, peft=peft)
         ds_and_model = {
             'dataloader': test_dataloader,
-            'depth_model': depth_model
+            'depth_model': depth_model,
+            'output_dir': os.path.join(model_path, 'eval_images', model_name),
         }
         eval_args = dict(ds_and_model=ds_and_model, load_depth_from_npz=load_depth_from_npz)
         if eval_kwargs:
@@ -74,7 +76,8 @@ def find_best_parametric(model_loader_fn, model_name, only_keep_best=False, ds_n
                 load_weights_folder=weight_path,
                 dataset_name=ds_name,
                 evaluate_pose=True,
-                evaluate_intrinsics=True
+                evaluate_intrinsics=True,
+                pose_seq=pose_seq,
             )
             if pose_result and 'ate_rmse' in pose_result:
                 ate = pose_result['ate_rmse'] if isinstance(pose_result['ate_rmse'], float) else None 

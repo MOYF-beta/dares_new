@@ -146,6 +146,80 @@ ds_test_c3vd = SCAREDRAWDataset(
     load_depth=True,
     img_ext='.png'
 )
+
+ds_path = os.path.join(ds_base, 'C3VD_test_time_train_1')
+split_train = os.path.join(ds_path, 'splits/train_files.txt')
+train_filenames = readlines(split_train)
+
+ds_testtime_train_c3vd_1_train = SCAREDRAWDataset(
+    data_path=ds_path,
+    filenames=train_filenames,
+    frame_idxs=DefaultOpt.frame_ids,
+    height=DefaultOpt.height,
+    width=DefaultOpt.width,
+    num_scales=4,
+    min_depth=0.1,
+    max_depth=150,
+    load_depth=True,
+    is_train=True,
+    depth_rescale_factor = 150 / 65535,
+    img_ext='.png'
+)
+
+split_test = os.path.join(ds_path, 'splits/test_files.txt')
+test_filenames = readlines(split_test)
+ds_testtime_train_c3vd_1_test = SCAREDRAWDataset(
+    data_path=ds_path,
+    filenames=test_filenames,
+    frame_idxs=[0],
+    height=DefaultOpt.height,
+    width=DefaultOpt.width,
+    num_scales=1,
+    depth_rescale_factor = 150 / 65535,
+    min_depth=0.1,
+    max_depth=150,
+    is_train=False,
+    load_depth=True,
+    img_ext='.png'
+)
+
+
+ds_path = os.path.join(ds_base, 'C3VD_test_time_train_2')
+split_train = os.path.join(ds_path, 'splits/train_files.txt')
+train_filenames = readlines(split_train)
+ds_testtime_train_c3vd_2_train = SCAREDRAWDataset(
+    data_path=ds_path,
+    filenames=train_filenames,
+    frame_idxs=DefaultOpt.frame_ids,
+    height=DefaultOpt.height,
+    width=DefaultOpt.width,
+    num_scales=4,
+    min_depth=0.1,
+    max_depth=150,
+    load_depth=True,
+    is_train=True,
+    depth_rescale_factor = 150 / 65535,
+    img_ext='.png'
+)
+
+split_test = os.path.join(ds_path, 'splits/test_files.txt')
+test_filenames = readlines(split_test)
+ds_testtime_train_c3vd_2_test = SCAREDRAWDataset(
+    data_path=ds_path,
+    filenames=test_filenames,
+    frame_idxs=[0],
+    height=DefaultOpt.height,
+    width=DefaultOpt.width,
+    num_scales=1,
+    depth_rescale_factor = 150 / 65535,
+    min_depth=0.1,
+    max_depth=150,
+    is_train=False,
+    load_depth=True,
+    img_ext='.png'
+)
+
+
 '''hamlyn dataset setup'''
 ds_path = os.path.join(ds_base, 'hamlyn_as_SCARED')
 splits_dir = os.path.join(ds_base, 'hamlyn_as_SCARED', 'splits')
