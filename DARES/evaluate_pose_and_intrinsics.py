@@ -19,12 +19,13 @@ from evo.tools import file_interface
 from evo.core import metrics
 from evo.core import sync
 from evo.tools import plot
+import pandas as pd
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from exps.dataset import SCAREDRAWDataset
 from torch.utils.data import DataLoader
-from DARES.networks.resnet_encoder import AttentionalResnetEncoder, MultiHeadAttentionalResnetEncoder
+from DARES.networks.resnet_encoder import AttentionalResnetEncoder, MultiHeadAttentionalResnetEncoder, ResnetEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 
 from layers import transformation_from_parameters
@@ -361,7 +362,7 @@ def visualize_intrinsics_errors(errors, output_dir, name_prefix=""):
 def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1, 
              evaluate_pose=True, evaluate_intrinsics=True, 
              gt_path=None, filename_list_path=None,
-             pose_encoder_class=AttentionalResnetEncoder, pose_decoder_class=PoseDecoder_i):
+             pose_encoder_class=MultiHeadAttentionalResnetEncoder, pose_decoder_class=PoseDecoder_i):
     """Unified evaluation function for both pose and intrinsics
     
     Args:
@@ -383,6 +384,8 @@ def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1,
         ds_path = os.path.join(ds_base, 'SCARED_Images_Resized')
     elif dataset_name in ['SyntheticColon', 'C3VD']:
         ds_path = os.path.join(ds_base, f'{dataset_name}_as_SCARED')
+    elif dataset_name in ['test_time_train_1', 'test_time_train_2']:
+        ds_path = os.path.join(ds_base, f'C3VD_{dataset_name}')
     else:
         raise ValueError(f"Unknown dataset_name: {dataset_name}")
     
@@ -393,18 +396,30 @@ def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1,
     if filename_list_path is None:
         if dataset_name == 'SCARED':
             filename_list_path = os.path.join(ds_path, "splits", f"test_files_sequence{pose_seq}.txt")
-        elif dataset_name in ['SyntheticColon', 'C3VD']:
+            filenames = readlines(filename_list_path)
+        elif dataset_name in ['SyntheticColon', 'C3VD', 'test_time_train_1', 'test_time_train_2']:
             # 默认使用第一个test folder
             test_folders_file = os.path.join(ds_path, 'splits', 'test_folders.txt')
             with open(test_folders_file, 'r') as f:
                 test_folders = f.readlines()
             test_folder = test_folders[0].strip()
-            filename_list_path = os.path.join(ds_path, test_folder, 'traj_test.txt')
+            # 读取这个文件夹下的所有图片，按编号顺序而非字典序
+            test_folder_path = os.path.join(ds_path, test_folder, 'image_02', 'data')
+            filenames = sorted(os.listdir(test_folder_path), key=lambda x: int(x.split('.')[0]))
+            # Extract the last two parts of the test folder path
+            folder_parts = test_folder.split('/')
+            if len(folder_parts) >= 2:
+                folder_prefix = '/'.join(folder_parts[-2:])
+            else:
+                folder_prefix = test_folder
+
+            # Format filenames as "dataset2/keyframe1 369 l"
+            filenames = [f"{folder_prefix} {f.split('.')[0]} l" for f in filenames]
         else:
             raise ValueError(f"Unknown dataset_name: {dataset_name}")
     
     print(f"Using test files list: {filename_list_path}")
-    filenames = readlines(filename_list_path)
+    
     
     dataset = SCAREDRAWDataset(ds_path, filenames, opt.height, opt.width,
                                [0, 1], 1, is_train=False)
@@ -491,7 +506,15 @@ def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1,
         
         # Define ground truth path if not provided
         if gt_path is None:
-            gt_path = os.path.join(ds_path, "splits", f"traj_kitti_{pose_seq}.txt")
+            if dataset_name == 'SCARED':
+                gt_path = os.path.join(ds_path, "splits", f"traj_kitti_{pose_seq}.txt")
+            else:
+                # 从 splits/test_folders.txt 中读取 ground truth 路径
+                gt_folders_file = os.path.join(ds_path, 'splits', 'test_folders.txt')
+                with open(gt_folders_file, 'r') as f:
+                    gt_folders = f.readlines()
+                gt_folder = gt_folders[pose_seq - 1].strip()
+                gt_path = os.path.join(ds_path, gt_folder, 'traj_kitti.txt')
         
         if not os.path.exists(gt_path):
             print(f"Warning: Ground truth pose file not found at {gt_path}")
@@ -616,8 +639,17 @@ def evaluate(opt, load_weights_folder, dataset_name="SCARED", pose_seq=1,
             # Print the mean predicted intrinsics and ground truth for comparison
             print("\nMean Predicted Intrinsics:")
             print(mean_pred_intrinsics)
-            print("\nGround Truth Intrinsics:")
-            print(gt_intrinsics)
+            
+            # Calculate and print the scale-adjusted mean predicted intrinsics
+            scale = error_metrics['scale_factor_mean']
+            scaled_pred_intrinsics = mean_pred_intrinsics.copy()
+            scaled_pred_intrinsics[0, 0] *= scale  # fx
+            scaled_pred_intrinsics[1, 1] *= scale  # fy
+            scaled_pred_intrinsics[0, 2] *= scale  # cx
+            scaled_pred_intrinsics[1, 2] *= scale  # cy
+            
+            print("\nScale-Adjusted Mean Predicted Intrinsics (scale factor: {:.4f}):".format(scale))
+            print(np.array2string(scaled_pred_intrinsics, precision=2, suppress_small=True, separator=', '))
             
             # Print scale-invariant metrics summary
             print("\nScale-Invariant Intrinsics Error Summary:")
@@ -684,13 +716,27 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
         model_dir: Directory containing model weights
         debug: Run in debug mode (limited evaluation)
     """
-    result_file = os.path.join(model_dir, f'{dataset_name}_results.txt')
+    # Create results directory
+    results_dir = os.path.join(model_dir, 'evaluation_results')
+    os.makedirs(results_dir, exist_ok=True)
+    
+    # CSV file paths
+    csv_file = os.path.join(results_dir, f'{dataset_name}_all_results.csv')
+    best_csv_file = os.path.join(results_dir, f'{dataset_name}_best_results.csv')
+    
     weight_folders = glob.glob(os.path.join(model_dir, 'weights_*'))
     weight_indices = [int(os.path.basename(folder).split('_')[1]) for folder in weight_folders]
+    weight_indices.sort()
     
     if debug:
         weight_indices = weight_indices[:2]  # Only evaluate first two weight folders in debug mode
     
+    # For tracking all results
+    all_results = []
+    best_results = []
+    
+    # Text summary file (keeping for backwards compatibility)
+    result_file = os.path.join(results_dir, f'{dataset_name}_results.txt')
     with open(result_file, 'w') as f_result:
         f_result.write(f'Evaluation results for {dataset_name}:\n')
         
@@ -705,6 +751,7 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                 
                 best_intrinsics_errors = None
                 best_mean_pred_intrinsics = None
+                seq_results = []
                 
                 for i in weight_indices:
                     print(f"Evaluating model {i} on SCARED Trajectory {seq}")
@@ -717,6 +764,35 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                         evaluate_intrinsics=True
                     )
                     
+                    # Store this individual result
+                    result_row = {
+                        'Dataset': 'SCARED', 
+                        'Trajectory': seq,
+                        'Model': f'weights_{i}'
+                    }
+                    
+                    # Add pose metrics
+                    if 'ate_rmse' in results:
+                        result_row['ATE_RMSE'] = results['ate_rmse']
+                        result_row['ATE_STD'] = results['ate_std']
+                        result_row['RPE_Mean'] = results['rpe_mean']
+                        result_row['RPE_STD'] = results['rpe_std']
+                    
+                    # Add intrinsics metrics
+                    if 'intrinsics_error' in results:
+                        intrinsics_error = results['intrinsics_error']
+                        result_row['Scale_Factor'] = intrinsics_error['scale_factor_mean']
+                        result_row['FX_Abs_Error'] = intrinsics_error['scale_adjusted_fx_abs_error_mean']
+                        result_row['FY_Abs_Error'] = intrinsics_error['scale_adjusted_fy_abs_error_mean']
+                        result_row['CX_Abs_Error'] = intrinsics_error['scale_adjusted_cx_abs_error_mean']
+                        result_row['CY_Abs_Error'] = intrinsics_error['scale_adjusted_cy_abs_error_mean']
+                        result_row['FX_Rel_Error'] = intrinsics_error['scale_adjusted_fx_rel_error_mean']
+                        result_row['FY_Rel_Error'] = intrinsics_error['scale_adjusted_fy_rel_error_mean']
+                        result_row['Matrix_Norm'] = intrinsics_error['scale_adjusted_matrix_frobenius_norm_mean']
+                    
+                    seq_results.append(result_row)
+                    all_results.append(result_row)
+                    
                     if 'ate_rmse' in results and results['ate_rmse'] < min_ate:
                         min_ate = results['ate_rmse']
                         min_re = results['rpe_mean']
@@ -728,6 +804,30 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                             best_intrinsics_errors = results['intrinsics_error']
                             best_mean_pred_intrinsics = results['mean_pred_intrinsics']
                 
+                # Record best result for this sequence
+                best_result = {
+                    'Dataset': 'SCARED',
+                    'Trajectory': seq,
+                    'Best_Model': f'weights_{best_i}',
+                    'ATE_RMSE': min_ate,
+                    'ATE_STD': ate_std,
+                    'RPE_Mean': min_re,
+                    'RPE_STD': re_std
+                }
+                
+                if best_intrinsics_errors is not None:
+                    best_result['Scale_Factor'] = best_intrinsics_errors['scale_factor_mean']
+                    best_result['FX_Abs_Error'] = best_intrinsics_errors['scale_adjusted_fx_abs_error_mean']
+                    best_result['FY_Abs_Error'] = best_intrinsics_errors['scale_adjusted_fy_abs_error_mean']
+                    best_result['CX_Abs_Error'] = best_intrinsics_errors['scale_adjusted_cx_abs_error_mean']
+                    best_result['CY_Abs_Error'] = best_intrinsics_errors['scale_adjusted_cy_abs_error_mean']
+                    best_result['FX_Rel_Error'] = best_intrinsics_errors['scale_adjusted_fx_rel_error_mean']
+                    best_result['FY_Rel_Error'] = best_intrinsics_errors['scale_adjusted_fy_rel_error_mean']
+                    best_result['Matrix_Norm'] = best_intrinsics_errors['scale_adjusted_matrix_frobenius_norm_mean']
+                
+                best_results.append(best_result)
+                
+                # Write to text file for compatibility
                 print(f"SCARED Traj {seq}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}")
                 f_result.write(f"SCARED Traj {seq}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}\n")
                 
@@ -741,9 +841,15 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                                  f"({best_intrinsics_errors['scale_adjusted_fy_rel_error_mean']:.2f}% relative)\n")
                     f_result.write(f"Scale-Adjusted Matrix Frobenius Norm: {best_intrinsics_errors['scale_adjusted_matrix_frobenius_norm_mean']:.2f}\n\n")
                 
-        elif dataset_name in ['SyntheticColon', 'C3VD']:
+        elif dataset_name in ['SyntheticColon', 'C3VD', 'test_time_train_1', 'test_time_train_2']:
             # -- SyntheticColon or C3VD --
-            test_folders_file = os.path.join(model_dir, 'splits', 'test_folders.txt')
+            ds_dir_dic = {
+                'SyntheticColon': 'SyntheticColon_as_SCARED',
+                'C3VD': 'C3VD_as_SCARED',
+                'test_time_train_1': 'C3VD_test_time_train_1',
+                'test_time_train_2': 'C3VD_test_time_train_2'
+            }
+            test_folders_file = os.path.join(os.path.join(ds_base,ds_dir_dic[dataset_name]), 'splits', 'test_folders.txt')
             
             with open(test_folders_file, 'r') as f:
                 test_folders = f.readlines()
@@ -769,46 +875,116 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
                 
                 print(f"Evaluating model {i} on {dataset_name}")
                 
-                for test_folder in tqdm(test_folders, desc=f"Evaluating test folders"):
+                for test_idx, test_folder in enumerate(tqdm(test_folders, desc=f"Evaluating test folders")):
                     full_test_folder = os.path.join(model_dir, test_folder.strip())
+                    filename_list_path=os.path.join(full_test_folder, 'traj_test.txt') if os.path.exists(os.path.join(full_test_folder, 'traj_test.txt')) else None
                     results = evaluate(
                         opt, 
                         f'{model_dir}/weights_{i}',
                         dataset_name=dataset_name,
-                        pose_seq=1,  # Not used for synthetic datasets
+                        pose_seq=test_idx+1,  # Use test index as sequence number
                         evaluate_pose=True,
                         evaluate_intrinsics=True,
-                        filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
-                        gt_path=os.path.join(full_test_folder, 'traj.txt')
+                        filename_list_path=filename_list_path,
                     )
                     
+                    # Store individual sequence result
+                    result_row = {
+                        'Dataset': dataset_name, 
+                        'Test_Folder': test_folder.strip(),
+                        'Model': f'weights_{i}'
+                    }
+                    
+                    # Add pose metrics
                     if 'ate_rmse' in results:
+                        result_row['ATE_RMSE'] = results['ate_rmse']
+                        result_row['ATE_STD'] = results['ate_std']
+                        result_row['RPE_Mean'] = results['rpe_mean']
+                        result_row['RPE_STD'] = results['rpe_std']
+                        
                         ates.append(results['ate_rmse'])
                         res.append(results['rpe_mean'])
                         std_ates.append(results['ate_std'])
                         std_res.append(results['rpe_std'])
                     
+                    # Add intrinsics metrics
                     if 'intrinsics_error' in results:
+                        intrinsics_error = results['intrinsics_error']
+                        result_row['Scale_Factor'] = intrinsics_error['scale_factor_mean']
+                        result_row['FX_Abs_Error'] = intrinsics_error['scale_adjusted_fx_abs_error_mean']
+                        result_row['FY_Abs_Error'] = intrinsics_error['scale_adjusted_fy_abs_error_mean']
+                        result_row['CX_Abs_Error'] = intrinsics_error['scale_adjusted_cx_abs_error_mean']
+                        result_row['CY_Abs_Error'] = intrinsics_error['scale_adjusted_cy_abs_error_mean']
+                        result_row['FX_Rel_Error'] = intrinsics_error['scale_adjusted_fx_rel_error_mean']
+                        result_row['FY_Rel_Error'] = intrinsics_error['scale_adjusted_fy_rel_error_mean']
+                        result_row['Matrix_Norm'] = intrinsics_error['scale_adjusted_matrix_frobenius_norm_mean']
                         all_intrinsics_results.append(results['intrinsics_error'])
-                
-                if len(ates) > 0 and np.mean(ates) < min_ate:
-                    min_ate = np.mean(ates)
-                    min_re = np.mean(res)
-                    best_i = i
-                    ate_std = np.mean(std_ates)
-                    re_std = np.mean(std_res)
                     
+                    all_results.append(result_row)
+                
+                # Calculate average for this model across all test folders
+                if len(ates) > 0:
+                    avg_result_row = {
+                        'Dataset': dataset_name, 
+                        'Test_Folder': 'Average',
+                        'Model': f'weights_{i}',
+                        'ATE_RMSE': np.mean(ates),
+                        'ATE_STD': np.mean(std_ates),
+                        'RPE_Mean': np.mean(res),
+                        'RPE_STD': np.mean(std_res)
+                    }
+                    
+                    # Add average intrinsics metrics
                     if len(all_intrinsics_results) > 0:
-                        # Compute average of intrinsics results
-                        combined_errors = {}
                         for key in all_intrinsics_results[0]:
                             if key != 'errors':  # Skip raw error data
-                                combined_errors[key] = np.mean([result[key] for result in all_intrinsics_results])
-                        best_intrinsics_errors = combined_errors
-                        # Get mean predicted intrinsics from last result (as an example)
-                        if 'mean_pred_intrinsics' in results:
-                            best_mean_pred_intrinsics = results['mean_pred_intrinsics']
+                                key_short = key.replace('scale_adjusted_', '').replace('_mean', '')
+                                avg_result_row[key_short] = np.mean([result[key] for result in all_intrinsics_results])
+                    
+                    all_results.append(avg_result_row)
+                    
+                    # Track best model
+                    if np.mean(ates) < min_ate:
+                        min_ate = np.mean(ates)
+                        min_re = np.mean(res)
+                        best_i = i
+                        ate_std = np.mean(std_ates)
+                        re_std = np.mean(std_res)
+                        
+                        if len(all_intrinsics_results) > 0:
+                            # Compute average of intrinsics results
+                            combined_errors = {}
+                            for key in all_intrinsics_results[0]:
+                                if key != 'errors':  # Skip raw error data
+                                    combined_errors[key] = np.mean([result[key] for result in all_intrinsics_results])
+                            best_intrinsics_errors = combined_errors
+                            # Get mean predicted intrinsics from last result (as an example)
+                            if 'mean_pred_intrinsics' in results:
+                                best_mean_pred_intrinsics = results['mean_pred_intrinsics']
             
+            # Record best result
+            best_result = {
+                'Dataset': dataset_name,
+                'Best_Model': f'weights_{best_i}',
+                'ATE_RMSE': min_ate,
+                'ATE_STD': ate_std,
+                'RPE_Mean': min_re,
+                'RPE_STD': re_std
+            }
+            
+            if best_intrinsics_errors is not None:
+                best_result['Scale_Factor'] = best_intrinsics_errors['scale_factor_mean']
+                best_result['FX_Abs_Error'] = best_intrinsics_errors['scale_adjusted_fx_abs_error_mean']
+                best_result['FY_Abs_Error'] = best_intrinsics_errors['scale_adjusted_fy_abs_error_mean']
+                best_result['CX_Abs_Error'] = best_intrinsics_errors['scale_adjusted_cx_abs_error_mean']
+                best_result['CY_Abs_Error'] = best_intrinsics_errors['scale_adjusted_cy_abs_error_mean']
+                best_result['FX_Rel_Error'] = best_intrinsics_errors['scale_adjusted_fx_rel_error_mean']
+                best_result['FY_Rel_Error'] = best_intrinsics_errors['scale_adjusted_fy_rel_error_mean']
+                best_result['Matrix_Norm'] = best_intrinsics_errors['scale_adjusted_matrix_frobenius_norm_mean']
+            
+            best_results.append(best_result)
+            
+            # Write to text file for compatibility
             print(f"{dataset_name}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}")
             f_result.write(f"{dataset_name}: Best ATE: {min_ate}±{ate_std}, Best RE: {min_re}±{re_std} @ weights_{best_i}\n")
             
@@ -826,10 +1002,24 @@ def evaluate_batch(opt, dataset_name, model_dir, debug=False):
         else:
             print(f"Unknown dataset: {dataset_name}")
             f_result.write(f"Unknown dataset: {dataset_name}\n")
+    
+    # Write all results to CSV
+    if all_results:
+        df = pd.DataFrame(all_results)
+        df.to_csv(csv_file, index=False)
+        print(f"All results saved to: {csv_file}")
+        
+        # Write best results to CSV
+        if best_results:
+            best_df = pd.DataFrame(best_results)
+            best_df.to_csv(best_csv_file, index=False)
+            print(f"Best results saved to: {best_csv_file}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate pose and intrinsics estimation")
-    parser.add_argument('--dataset', type=str, choices=['SCARED', 'SyntheticColon', 'C3VD'], default='SCARED',
+    parser.add_argument('--dataset', type=str, choices=['SCARED', 'SyntheticColon', 
+                                                        'C3VD', 'C3VD_testtime_train_1', 
+                                                        'C3VD_testtime_train_2'], default='test_time_train_1',
                         help='Dataset to evaluate on (SCARED, SyntheticColon, or C3VD)')
     parser.add_argument('--model_dir', type=str, default='logs/base_model_2/models',
                         help='Directory containing the model weights')
@@ -861,23 +1051,24 @@ if __name__ == "__main__":
             evaluate_pose=evaluate_pose,
             evaluate_intrinsics=evaluate_intrinsics
         )
-    elif args.weights is not None and args.dataset in ['SyntheticColon', 'C3VD']:
+    elif args.weights is not None and args.dataset in ['SyntheticColon', 'C3VD', 'test_time_train_1', 'test_time_train_2']:
         print(f"Evaluating {args.dataset} with weights_{args.weights}")
         from exps.exp_setup_local import ds_base
+
         dataset_path = os.path.join(ds_base, f'{args.dataset}_as_SCARED')
         test_folders_file = os.path.join(dataset_path, 'splits', 'test_folders.txt')
         with open(test_folders_file, 'r') as f:
             test_folders = f.readlines()[:1]  # Just evaluate first test folder
         test_folder = test_folders[0].strip()
         full_test_folder = os.path.join(dataset_path, test_folder)
+        filename_list_path=os.path.join(full_test_folder, 'traj_test.txt') if os.path.exists(os.path.join(full_test_folder, 'traj_test.txt')) else None
         evaluate(
             AttnEncoderOpt,
             f'{args.model_dir}/weights_{args.weights}',
             dataset_name=args.dataset,
             evaluate_pose=evaluate_pose,
             evaluate_intrinsics=evaluate_intrinsics,
-            filename_list_path=os.path.join(full_test_folder, 'traj_test.txt'),
-            gt_path=os.path.join(full_test_folder, 'traj.txt')
+            filename_list_path=filename_list_path,
         )
     else:
         # Batch evaluation mode
