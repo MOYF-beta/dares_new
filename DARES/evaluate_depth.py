@@ -41,7 +41,7 @@ def batch_post_process_disparity(l_disp, r_disp):
 from torchvision.utils import save_image
 
 def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = False, 
-             show_images = False, auto_scale = True,image_save_countdown = 20):
+             show_images = True, auto_scale = True,image_save_countdown = 20, output_dir = None):
     """Evaluates a pretrained model using a specified test set
     """
     dataloader = ds_and_model['dataloader']
@@ -52,8 +52,9 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
     image_index = 0  # Initialize image index
 
     # Make sure the output directory exists
-    output_dir = './eval_images/'
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir is None:
+        output_dir = './eval_images/'
+        os.makedirs(output_dir, exist_ok=True)
 
     with torch.no_grad():
         num_input_frames = len(frames_input)
@@ -88,8 +89,9 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
 
             # Save images every 1000 frames
             if show_images and image_index % image_save_countdown == 0:
-                # Save the input color image
-                save_image(input_color[0], os.path.join(output_dir, f"{image_index}_color.png"))
+                # Use a non-interactive backend for matplotlib to avoid Tkinter errors
+                import matplotlib
+                matplotlib.use('Agg')
                 import matplotlib.pyplot as plt
 
                 # Save the input color image
@@ -98,7 +100,6 @@ def evaluate(opt, ds_and_model = {}, frames_input = [0], load_depth_from_npz = F
                 # Save the ground truth depth image
                 fig, ax = plt.subplots()
                 ax.axis('off')
-                # 使用 squeeze() 去掉维度为 1 的维度
                 ax.imshow(gt_depth[0].squeeze().cpu().numpy(), cmap='plasma')
                 plt.savefig(os.path.join(output_dir, f"{image_index}_gt.png"), bbox_inches='tight', pad_inches=0)
                 plt.close(fig)
