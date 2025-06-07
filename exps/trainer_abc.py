@@ -5,13 +5,16 @@ import time
 
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
 from exps.dataset import DataLoaderX as DataLoader
 from torch.utils.data import RandomSampler, Sampler
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 from DARES.layers import *
 from DARES.utils import *
-
+from Endo3DAC.utils.layers import SSILoss
+import torch.nn as nn
+import numpy as np
 
 class GlobalRandomSampler(Sampler):
     def __init__(self, data_source):
@@ -67,11 +70,12 @@ class Trainer(ABC):
         pass
 
     def __init__(self, model_name, log_dir, options, train_eval_ds={},
-                  pretrained_root_dir=None, merge_val_as_train=False, use_supervised_loss = True, debug = False):
+                  pretrained_root_dir=None, merge_val_as_train=False, use_supervised_loss = True, debug = False, use_af_pose=False):
         if debug:
             print("\033[91m WARNING: Debug mode activated, only train 1 epoch\033[0m")
             options.num_epochs = 2
             options.batch_size = 8
+        self.use_af_pose = use_af_pose
         self.opt = options
         self.log_path = os.path.join(log_dir, model_name)
         self.use_supervised_loss = use_supervised_loss
@@ -128,6 +132,10 @@ class Trainer(ABC):
         if not self.opt.no_ssim:
             self.ms_ssim = MultiScaleStructuralSimilarityIndexMeasure(data_range=1.0)
             self.ms_ssim.to(self.device)
+        # Add Self-SSI loss initialization
+        if self.opt.self_ssi:
+            self.self_ssi = SSILoss()
+            self.self_ssi.to(self.device)
 
         self.spatial_transform = SpatialTransformer((self.opt.height, self.opt.width))
         self.spatial_transform.to(self.device)
@@ -164,26 +172,30 @@ class Trainer(ABC):
 
         self.save_opts()
     
-    def set_train(self, train_position_only=False):
-        """Convert models to training/eval mode based on position training flag"""
-        # Define position-related models
-        position_models = ["position_encoder", "position"]
-        
-        # Set requires_grad and model mode for each model
-        for model_name in self.models:
-            requires_grad = (not train_position_only)or(model_name in position_models)
+    def set_train(self, train_position_only=False, freeze_depth=False):
+        """Enable or disable gradients based on optimizer groups."""
+        # Switch model modes: when training position only, keep depth_model in eval, others in train; otherwise all train
+        for name, model in self.models.items():
+            model.train()
+        # Freeze/unfreeze depth parameters
+        for group in self.optimizer_depth.param_groups:
+            for p in group['params']:
+                p.requires_grad = not train_position_only
+        # Freeze/unfreeze pose parameters
+        for group in self.optimizer_pose.param_groups:
+            for p in group['params']:
+                p.requires_grad = train_position_only
+        if freeze_depth:
+            for param in self.models["depth_model"].parameters():
+                param.requires_grad = False
+            self.models["depth_model"].eval()
 
-            for param in self.models[model_name].parameters():
-                param.requires_grad = requires_grad
-            
-            # Set model mode (train/eval)
-            if requires_grad:
-                self.models[model_name].train()
-            else:
-                self.models[model_name].eval()
                 
     def set_eval(self):
         """Convert all models to testing/evaluation mode"""
+        for name, model in self.models.items():
+            for param in model.parameters():
+                param.requires_grad = False
         self.models["depth_model"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
@@ -217,13 +229,21 @@ class Trainer(ABC):
             self.optimizer_pose.step()
 
             # Train depth
-            self.set_train(train_position_only=False)
-            outputs, losses = self.process_batch_depth(inputs)
-            loss_depth = losses["loss"]
+            ssi_warming_up = self.opt.self_ssi and self.epoch < int(self.opt.warm_up_step)
+            # print(f"Epoch {self.epoch}, batch {batch_idx}, ssi_warming_up: {ssi_warming_up}",end = '\r')
+            random_train = random.random() < 0.1 * (self.epoch+1)
+            if not self.opt.self_ssi or ssi_warming_up or random_train:
+                self.set_train(train_position_only=False, freeze_depth=ssi_warming_up if self.opt.self_ssi else False)
+                outputs, losses = self.process_batch_depth(inputs)
+                loss_depth = losses["loss"]
 
-            self.optimizer_depth.zero_grad()
-            loss_depth.backward()
-            self.optimizer_depth.step()
+                self.optimizer_depth.zero_grad()
+                loss_depth.backward()
+                self.optimizer_depth.step()
+            else:
+                self.set_eval()
+                outputs, losses = self.process_batch_depth(inputs)
+                loss_depth = losses["loss"]
 
             duration = time.time() - before_op_time
 
@@ -347,6 +367,11 @@ class Trainer(ABC):
 
                     # Pose (if disps is provided)
                     if disps is not None:
+                        # NOTE test: merge appearance flow onto pose
+                        if self.use_af_pose:
+                            inputs_all = [pose_feats[f_i], pose_feats[0], outputs[("transform", "high", 0, f_i)]]
+                        else:
+                            inputs_all = [pose_feats[f_i], pose_feats[0]]
                         pose_inputs = [self.models["pose_encoder"](torch.cat(inputs_all, 1))]
                         if self.opt.learn_intrinsics:
                             axisangle, translation, intrinsics = self.models["pose"](pose_inputs)
@@ -423,7 +448,16 @@ class Trainer(ABC):
 
                 outputs[("position_depth", scale, frame_id)] = self.position_depth[source_scale](
                         cam_points, inputs[("K", source_scale)], T)
-                
+                # Add generation of transformed disparity for self-ssi
+                if self.opt.self_ssi and self.epoch >= self.opt.warm_up_step:
+                    t_to_s_disp = F.grid_sample(
+                        outputs[("disp", scale)],
+                        outputs[("sample", frame_id, scale)],
+                        padding_mode="border",
+                        align_corners=True)
+                    outputs[("t_to_s_disp", frame_id, scale)] = t_to_s_disp
+       
+
     def compute_supervised_loss(self, inputs, outputs, debug=False):
         if 'depth_gt' in inputs.keys() and inputs['depth_gt'].any():
             depth_gt = inputs['depth_gt']
@@ -490,6 +524,8 @@ class Trainer(ABC):
         for scale in self.opt.scales:
             loss = 0
             loss_reprojection = 0
+            # Add self-ssi accumulation
+            loss_self_ssi = 0
 
             disp = outputs[("disp", scale)]
             color = inputs[("color", 0, scale)]
@@ -504,7 +540,17 @@ class Trainer(ABC):
                         outputs[("refined", scale, frame_id)]
                     ) * occu_mask_backward
                 ).sum() / occu_mask_backward.sum()
-                
+                # Add self-ssi loss term
+                if self.opt.self_ssi and self.epoch >= self.opt.warm_up_step:
+                    loss_self_ssi += self.self_ssi(
+                        outputs[("disp", scale)],
+                        outputs[("t_to_s_disp", frame_id, scale)],
+                        occu_mask_backward)
+
+            # Add weighted self-ssi constraint
+            if self.opt.self_ssi and self.epoch >= self.opt.warm_up_step:
+                loss += self.opt.self_ssi_constraint * loss_self_ssi
+
             # Compute disparity smoothness loss
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
@@ -518,7 +564,7 @@ class Trainer(ABC):
             if self.use_supervised_loss:
                 loss += self.compute_supervised_loss(inputs, outputs)  * 0.001
             total_loss += loss
-            losses["loss/{}".format(scale)] = loss
+            losses[f"loss/{scale}"] = loss
 
         total_loss /= self.num_scales
         losses["loss"] = total_loss
