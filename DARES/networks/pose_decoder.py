@@ -37,6 +37,35 @@ class ConvBlock(nn.Module):
         return out
 
 
+class ConvBlockWithAttention(nn.Module):
+    """Layer to perform a convolution followed by ELU and multi-head attention
+    """
+    def __init__(self, in_channels, out_channels, num_heads=8):
+        super(ConvBlockWithAttention, self).__init__()
+
+        self.conv = Conv3x3(in_channels, out_channels)
+        self.nonlin = nn.ELU(inplace=True)
+        self.attention = nn.MultiheadAttention(embed_dim=out_channels, num_heads=num_heads, batch_first=True)
+
+    def forward(self, x):
+        out = self.conv(x)
+        out = self.nonlin(out)
+        
+        # Store original shape for restoration
+        B, C, H, W = out.shape
+        
+        # Flatten spatial dimensions for attention
+        out_flat = out.view(B, C, H * W).transpose(1, 2)  # (B, H*W, C)
+        
+        # Apply multi-head attention
+        attn_out, _ = self.attention(out_flat, out_flat, out_flat)
+        
+        # Restore original shape
+        out = attn_out.transpose(1, 2).view(B, C, H, W)
+        
+        return out
+
+
 class PoseDecoder(nn.Module):
     def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1):
         super(PoseDecoder, self).__init__()
@@ -81,96 +110,6 @@ class PoseDecoder(nn.Module):
 
         return axisangle, translation
 
-class PoseDecoder_with_intrinsics_old(nn.Module):
-    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1,
-                 predict_intrinsics=False, simplified_intrinsic=False, image_width=None, image_height=None):
-        super(PoseDecoder_with_intrinsics_old, self).__init__()
-        self.num_ch_enc = num_ch_enc
-        self.num_input_features = num_input_features
-        if predict_intrinsics:
-            assert image_width is not None and image_height is not None\
-                , "image_width and image_height must be provided if predict_intrinsics is True"
-            self.image_width = image_width
-            self.image_height = image_height
-
-        if num_frames_to_predict_for is None:
-            num_frames_to_predict_for = num_input_features - 1
-        self.num_frames_to_predict_for = num_frames_to_predict_for
-        self.predict_intrinsics = predict_intrinsics
-
-        self.convs = OrderedDict()
-        self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
-        self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
-        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
-        # if predict_intrinsics, the feature is extracted here
-        self.convs[("pose", 2)] = nn.Conv2d(256, 6 * num_frames_to_predict_for, 1)
-
-        self.relu = nn.ReLU()
-        self.softlpus = nn.Softplus()
-        if self.predict_intrinsics:
-            if simplified_intrinsic:
-                # fx, fy = ? ; cx = cy = 0.5
-                self.num_param_to_predict = 2
-            else:
-                # fx, fy, cx, cy = ?
-                self.num_param_to_predict = 4
-            
-            self.intrinsics_layers = nn.Sequential(
-                ConvBlock(256, 256),
-                ConvBlock(256, 64),
-                nn.AdaptiveAvgPool2d(1),
-                nn.Flatten(),
-                nn.Linear(64, self.num_param_to_predict),
-                
-            )
-
-
-        self.net = nn.ModuleList(list(self.convs.values()))
-    def forward(self, input_features):
-        def predict_intrinsics(feature_for_intrinsics):
-            batch_size = feature_for_intrinsics.shape[0]
-            device = feature_for_intrinsics.device
-            # prepare intrinsics matrix
-            intrinsics_mat = torch.eye(4, device=device).unsqueeze(0)
-            intrinsics_mat = intrinsics_mat.repeat(batch_size, 1, 1)
-            # do the prediction
-            intrinsics = self.intrinsics_layers(feature_for_intrinsics)
-            # construct the intrinsics matrix
-            foci = (intrinsics[:, :2] + 0.5) * torch.tensor([self.image_width, self.image_height], device=device)
-            foci_mat = self.softlpus(torch.diag_embed(foci))
-            if self.num_param_to_predict == 4:
-                offsets = (intrinsics[:, 2:] + 0.5) * torch.tensor([self.image_width, self.image_height], device=device)
-            else:
-                offsets = torch.ones((batch_size,2), device=device) * 0.5
-            intrinsics_mat[:, :2, :2] = foci_mat
-            intrinsics_mat[:, :2, 2:3] = offsets.unsqueeze(-1)
-
-            return intrinsics_mat
-
-        last_features = [f[-1] for f in input_features]
-
-        cat_features = [self.relu(self.convs["squeeze"](f)) for f in last_features]
-        cat_features = torch.cat(cat_features, 1)
-        out = cat_features
-        for i in range(3):
-            out = self.convs[("pose", i)](out)
-            if i != 2:
-                out = self.relu(out)
-            # if i == 0 and self.predict_intrinsics:
-            #     feature_for_intrinsics = out
-
-        out = out.mean(3).mean(2)
-        # NOTE : Here is a key issue of training on different datasets. On previous studies this is fixed
-        # Beili says this vary from dataset to dataset.
-        out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6)
-
-        axisangle = out[..., :3]
-        translation = out[..., 3:]
-        if self.predict_intrinsics:
-            return axisangle, translation, predict_intrinsics(cat_features)
-        else:
-            return axisangle, translation
-
 class PoseDecoder_with_intrinsics(nn.Module):
     def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1,
                  predict_intrinsics=False, simplified_intrinsic=False, image_width=None, image_height=None, auto_scale=True):
@@ -194,7 +133,7 @@ class PoseDecoder_with_intrinsics(nn.Module):
         self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
         self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)        # if predict_intrinsics, the feature is extracted here
         self.convs[("pose", 2)] = nn.Conv2d(256, 6 * num_frames_to_predict_for, 1)
-
+        self.attn = nn.MultiheadAttention(embed_dim=256, num_heads=8, batch_first=True)
         self.relu = nn.ReLU()
         self.softlpus = nn.Softplus()
         
@@ -216,16 +155,76 @@ class PoseDecoder_with_intrinsics(nn.Module):
         
         # 添加scale_factor预测分支
         if self.auto_scale:
-            self.scale_factor_layers = nn.Sequential(
+            self.trans_scale_factor_layers = nn.Sequential(
                 ConvBlock(256, 128),
                 ConvBlock(128, 64),
                 nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
                 nn.Linear(64, 1),
-                nn.Sigmoid()  # 输出0-1范围，后续会映射到1e-2到1e2
+                nn.Tanh()
+            )
+            self.axis_scale_factor_layers = nn.Sequential(
+                ConvBlock(256, 128),
+                ConvBlock(128, 64),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(64, 1),
+                nn.Tanh()
             )
         
         self.net = nn.ModuleList(list(self.convs.values()))
+
+    def _fuse_features(self, features_list):
+        """
+        Fuse multi-scale features using the specified fusion method
+        
+        Args:
+            features_list: List of feature tensors [B, hidden_dim, H, W]
+        
+        Returns:
+            fused_features: Fused feature tensor [B, hidden_dim, H, W]
+        """
+        if len(features_list) == 1:
+            return features_list[0]
+        
+        if self.fusion_method == 'weighted_sum':
+            # Weighted sum with learnable weights
+            weights = F.softmax(self.scale_weights, dim=0)
+            fused_features = sum(w * feat for w, feat in zip(weights, features_list))
+            
+        elif self.fusion_method == 'attention':
+            # Attention-based fusion
+            attention_scores = []
+            for feat in features_list:
+                score = self.scale_attention(feat)  # [B, 1]
+                attention_scores.append(score)
+            
+            # Normalize attention scores
+            attention_weights = F.softmax(torch.stack(attention_scores, dim=1), dim=1)  # [B, num_scales, 1]
+            
+            # Apply attention weights
+            stacked_features = torch.stack(features_list, dim=1)  # [B, num_scales, hidden_dim, H, W]
+            attention_weights = attention_weights.unsqueeze(-1).unsqueeze(-1)  # [B, num_scales, 1, 1, 1]
+            fused_features = torch.sum(stacked_features * attention_weights, dim=1)  # [B, hidden_dim, H, W]
+            
+        elif self.fusion_method == 'conv':
+            # Convolutional fusion
+            concatenated = torch.cat(features_list, dim=1)  # [B, hidden_dim*num_scales, H, W]
+            fused_features = self.fusion_conv(concatenated)  # [B, hidden_dim, H, W]
+            
+        elif self.fusion_method == 'avg':
+            # Simple average
+            fused_features = torch.stack(features_list, dim=0).mean(dim=0)
+            
+        elif self.fusion_method == 'max':
+            # Element-wise maximum
+            fused_features = torch.stack(features_list, dim=0).max(dim=0)[0]
+            
+        else:
+            raise ValueError(f"Unknown fusion method: {self.fusion_method}")
+        
+        return fused_features
+
     def forward(self, input_features):
         def predict_intrinsics(feature_for_intrinsics):
             batch_size = feature_for_intrinsics.shape[0]
@@ -259,10 +258,14 @@ class PoseDecoder_with_intrinsics(nn.Module):
                 offsets = torch.ones((batch_size, 2), device=device) * torch.tensor([self.image_width / 2.0, self.image_height / 2.0], device=device)
             
             # Construct intrinsics matrix safely with bounds checking
-            intrinsics_mat[:, 0, 0] = torch.clamp(foci[:, 0], min=1e-3)  # fx - ensure positive
-            intrinsics_mat[:, 1, 1] = torch.clamp(foci[:, 1], min=1e-3)  # fy - ensure positive  
-            intrinsics_mat[:, 0, 2] = torch.clamp(offsets[:, 0], min=1.0, max=self.image_width-1.0)  # cx
-            intrinsics_mat[:, 1, 2] = torch.clamp(offsets[:, 1], min=1.0, max=self.image_height-1.0)  # cy
+            # 取batch内平均值，所有样本用同一个intrinsics
+            mean_foci = torch.mean(foci, dim=0)
+            mean_offsets = torch.mean(offsets, dim=0)
+            intrinsics_mat[:, 0, 0] = torch.clamp(mean_foci[0], min=1e-3)  # fx
+            intrinsics_mat[:, 1, 1] = torch.clamp(mean_foci[1], min=1e-3)  # fy
+            intrinsics_mat[:, 0, 2] = torch.clamp(mean_offsets[0], min=1.0, max=self.image_width-1.0)  # cx
+            intrinsics_mat[:, 1, 2] = torch.clamp(mean_offsets[1], min=1.0, max=self.image_height-1.0)  # cy
+            # print(f'fx: {intrinsics_mat[:, 0, 0].mean().item():.2f}, fy: {intrinsics_mat[:, 1, 1].mean().item():.2f}, cx: {intrinsics_mat[:, 0, 2].mean().item():.2f}, cy: {intrinsics_mat[:, 1, 2].mean().item():.2f}', end='\t')
             return intrinsics_mat
 
         last_features = [f[-1] for f in input_features]
@@ -278,19 +281,23 @@ class PoseDecoder_with_intrinsics(nn.Module):
             #     feature_for_intrinsics = out
 
         out = out.mean(3).mean(2)
-        
-        # 预测scale_factor (从1e-2到1e2的范围)
-        scale_factor = self.scale_factor_layers(cat_features) if self.auto_scale else torch.ones(out.shape[0], 1, device=device)
-        # 将0-1范围映射到1e-2到1e2 (log scale)
-        scale_factor = torch.exp(scale_factor * (torch.log(torch.tensor(1e2)) - torch.log(torch.tensor(1e-2))) + torch.log(torch.tensor(1e-2)))
+        if self.auto_scale:
+            trans_scale_factor = self.trans_scale_factor_layers(cat_features)
+            axis_scale_factor = self.axis_scale_factor_layers(cat_features)
+            trans_scale_factor = torch.exp(trans_scale_factor*5 + 0.5) * 1e-2
+            axis_scale_factor = torch.exp(axis_scale_factor*5 + 0.5) * 1e-2
+        else:
+            trans_scale_factor = torch.ones(out.shape[0], 1, device=device)* 1e-2
+            axis_scale_factor = torch.ones(out.shape[0], 1, device=device)* 1e-2
         
         # NOTE : Here is a key issue of training on different datasets. On previous studies this is fixed
         # Beili says this vary from dataset to dataset.
         # 应用通过网络估计的scale_factor
-        out = 0.001*out.view(-1, self.num_frames_to_predict_for, 1, 6) * scale_factor.unsqueeze(1).unsqueeze(2)
-
-        axisangle = out[..., :3]
-        translation = out[..., 3:]
+        out = out.view(-1, self.num_frames_to_predict_for, 1, 6) 
+        
+        axisangle = out[..., :3]* trans_scale_factor.unsqueeze(1).unsqueeze(2)
+        translation = out[..., 3:]* axis_scale_factor.unsqueeze(1).unsqueeze(2)
+        print(f'axis_scale: {axis_scale_factor.mean().item():.4f}, trans_scale: {trans_scale_factor.mean().item():.4f}', end='\r')
         if self.predict_intrinsics:
             return axisangle, translation, predict_intrinsics(cat_features)
         else:
@@ -382,121 +389,28 @@ class SimplifiedPoseDecoder(nn.Module):
         return axisangle, translation
 
 
-class KNNFeatureProcessor(nn.Module):
-    """KNN-based feature processing module for pose estimation"""
-    def __init__(self, feature_dim, pose_dim=6, k=5, temperature=1.0):
-        super(KNNFeatureProcessor, self).__init__()
-        self.k = k
-        self.temperature = temperature
-        self.feature_dim = feature_dim
-        self.pose_dim = pose_dim
-        
-        # Feature bank for storing reference features (can be updated during training)
-        self.register_buffer('feature_bank', torch.randn(1000, feature_dim))
-        self.register_buffer('pose_bank', torch.randn(1000, pose_dim))  # 对应的pose参数
-        self.register_buffer('bank_ptr', torch.zeros(1, dtype=torch.long))
-        self.register_buffer('bank_size', torch.zeros(1, dtype=torch.long))
-        
-        # Learnable parameters for feature fusion
-        self.fusion_layer = nn.Sequential(
-            nn.Linear(feature_dim * 2, feature_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(feature_dim, feature_dim)
-        )
-        
-    def update_feature_bank(self, features, poses):
-        """Update the feature bank with new features and corresponding poses"""
-        batch_size = features.size(0)
-        
-        # 更新feature bank
-        ptr = int(self.bank_ptr)
-        bank_capacity = self.feature_bank.size(0)
-        
-        if ptr + batch_size <= bank_capacity:
-            self.feature_bank[ptr:ptr + batch_size] = features.detach()
-            self.pose_bank[ptr:ptr + batch_size] = poses.detach()
-            self.bank_ptr[0] = (ptr + batch_size) % bank_capacity
-        else:
-            # Circular buffer behavior
-            remaining = bank_capacity - ptr
-            self.feature_bank[ptr:] = features[:remaining].detach()
-            self.pose_bank[ptr:] = poses[:remaining].detach()
-            self.feature_bank[:batch_size - remaining] = features[remaining:].detach()
-            self.pose_bank[:batch_size - remaining] = poses[remaining:].detach()
-            self.bank_ptr[0] = batch_size - remaining
-            
-        self.bank_size[0] = min(self.bank_size[0] + batch_size, bank_capacity)
-        
-    def knn_search(self, query_features):
-        """Perform KNN search in the feature bank"""
-        if self.bank_size[0] == 0:
-            return None, None
-            
-        # 计算相似度
-        query_features_norm = F.normalize(query_features, dim=1)
-        bank_features_norm = F.normalize(self.feature_bank[:self.bank_size[0]], dim=1)
-        
-        # 计算余弦相似度
-        similarities = torch.mm(query_features_norm, bank_features_norm.t())
-        
-        # 找到top-k最相似的特征
-        k = min(self.k, self.bank_size[0])
-        top_k_similarities, top_k_indices = torch.topk(similarities, k, dim=1)
-        
-        # 应用温度缩放并计算权重
-        weights = F.softmax(top_k_similarities / self.temperature, dim=1)
-        
-        # 获取对应的特征和pose
-        batch_size = query_features.size(0)
-        neighbor_features = self.feature_bank[top_k_indices.view(-1)].view(batch_size, k, -1)
-        neighbor_poses = self.pose_bank[top_k_indices.view(-1)].view(batch_size, k, -1)
-        
-        # 加权聚合邻居特征
-        weighted_neighbor_features = torch.sum(
-            neighbor_features * weights.unsqueeze(-1), dim=1
-        )
-        
-        # 加权聚合邻居pose（用于参考）
-        weighted_neighbor_poses = torch.sum(
-            neighbor_poses * weights.unsqueeze(-1), dim=1
-        )
-        
-        return weighted_neighbor_features, weighted_neighbor_poses
-        
-    def forward(self, features):
-        """Process features using KNN"""
-        # Flatten features for KNN processing
-        batch_size = features.size(0)
-        original_shape = features.shape
-        flattened_features = features.view(batch_size, -1)
-        
-        # Perform KNN search
-        neighbor_features, _ = self.knn_search(flattened_features)
-        
-        if neighbor_features is not None:
-            # Fuse original features with neighbor features
-            fused_input = torch.cat([flattened_features, neighbor_features], dim=1)
-            processed_features = self.fusion_layer(fused_input)
-            
-            # Reshape back to original feature map shape
-            processed_features = processed_features.view(original_shape)
-        else:
-            processed_features = features
-            
-        return processed_features
-
-
-class KNNPoseDecoder_with_intrinsics(nn.Module):
-    """Enhanced PoseDecoder with KNN feature processing for improved pose estimation"""
-    
-    def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1,
+class CrossAttnPoseDecoder_with_intrinsics(nn.Module):
+    """
+    Cross Attention Pose Decoder that processes hidden states from two DARES models (ref and tar)
+    using cross attention to extract features for pose and intrinsics prediction.
+    """
+    def __init__(self, num_ch_enc, num_input_features=2, num_frames_to_predict_for=None, stride=1,
                  predict_intrinsics=False, simplified_intrinsic=False, image_width=None, image_height=None, 
-                 auto_scale=True, use_knn=True, knn_k=5, knn_temperature=1.0):
-        super(KNNPoseDecoder_with_intrinsics, self).__init__()
+                 auto_scale=True, num_heads=8, hidden_dim=256, use_scales=None, fusion_method='weighted_sum'):
+        super(CrossAttnPoseDecoder_with_intrinsics, self).__init__()
+        
         self.auto_scale = auto_scale
-        self.use_knn = use_knn
         self.num_ch_enc = num_ch_enc
-        self.num_input_features = num_input_features
+        self.num_input_features = num_input_features  # Should be 2 for ref and tar
+        self.hidden_dim = hidden_dim
+        self.fusion_method = fusion_method
+        
+        # Determine which scales to use (default: all scales)
+        if use_scales is None:
+            self.use_scales = list(range(len(num_ch_enc)))  # Use all scales by default
+        else:
+            self.use_scales = use_scales
+        self.num_scales = len(self.use_scales)
         
         if predict_intrinsics:
             assert image_width is not None and image_height is not None, \
@@ -509,27 +423,63 @@ class KNNPoseDecoder_with_intrinsics(nn.Module):
         self.num_frames_to_predict_for = num_frames_to_predict_for
         self.predict_intrinsics = predict_intrinsics
 
-        self.convs = OrderedDict()
-        self.convs[("squeeze")] = nn.Conv2d(self.num_ch_enc[-1], 256, 1)
-        self.convs[("pose", 0)] = nn.Conv2d(num_input_features * 256, 256, 3, stride, 1)
-        self.convs[("pose", 1)] = nn.Conv2d(256, 256, 3, stride, 1)
-        self.convs[("pose", 2)] = nn.Conv2d(256, 6 * num_frames_to_predict_for, 1)
-
-        self.relu = nn.ReLU()
-        self.softplus = nn.Softplus()
-          # 添加KNN特征处理器
-        if self.use_knn:
-            # 计算特征维度 (考虑feature map的spatial dimensions)
-            # 假设feature map经过global pooling后的维度
-            feature_dim = num_input_features * 256  # 基础特征维度
-            pose_dim = 6 * num_frames_to_predict_for  # pose维度
-            self.knn_processor = KNNFeatureProcessor(
-                feature_dim=feature_dim, 
-                pose_dim=pose_dim,
-                k=knn_k, 
-                temperature=knn_temperature
+        # Feature extraction layers for ref and tar hidden states (for each scale)
+        self.ref_squeeze_layers = nn.ModuleList([
+            nn.Conv2d(self.num_ch_enc[scale_idx], hidden_dim, 1) 
+            for scale_idx in self.use_scales
+        ])
+        self.tar_squeeze_layers = nn.ModuleList([
+            nn.Conv2d(self.num_ch_enc[scale_idx], hidden_dim, 1) 
+            for scale_idx in self.use_scales
+        ])
+        
+        # Multi-scale feature fusion
+        if self.fusion_method == 'weighted_sum':
+            # Learnable weights for each scale
+            self.scale_weights = nn.Parameter(torch.ones(self.num_scales))
+        elif self.fusion_method == 'attention':
+            # Attention-based fusion
+            self.scale_attention = nn.Sequential(
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(hidden_dim, hidden_dim // 4),
+                nn.ReLU(),
+                nn.Linear(hidden_dim // 4, 1),
+                nn.Sigmoid()
+            )
+        elif self.fusion_method == 'conv':
+            # Convolutional fusion
+            self.fusion_conv = nn.Sequential(
+                nn.Conv2d(hidden_dim * self.num_scales, hidden_dim, 3, padding=1),
+                nn.ReLU(),
+                nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1)
             )
         
+        # Cross attention layers
+        self.cross_attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        self.self_attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        
+        # Layer normalization
+        self.layer_norm1 = nn.LayerNorm(hidden_dim)
+        self.layer_norm2 = nn.LayerNorm(hidden_dim)
+        
+        # Feed forward network
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim)
+        )
+        
+        # Pose prediction layers
+        self.convs = OrderedDict()
+        self.convs[("pose", 0)] = nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1)
+        self.convs[("pose", 1)] = nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1)
+        self.convs[("pose", 2)] = nn.Conv2d(hidden_dim, 6 * num_frames_to_predict_for, 1)
+        
+        self.relu = nn.ReLU()
+        self.softplus = nn.Softplus()
+        
+        # Intrinsics prediction layers
         if self.predict_intrinsics:
             if simplified_intrinsic:
                 # fx, fy = ? ; cx = cy = 0.5
@@ -539,122 +489,226 @@ class KNNPoseDecoder_with_intrinsics(nn.Module):
                 self.num_param_to_predict = 4
             
             self.intrinsics_layers = nn.Sequential(
-                ConvBlock(256, 256),
-                ConvBlock(256, 64),
+                ConvBlock(hidden_dim, hidden_dim),
+                ConvBlock(hidden_dim, 64),
                 nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
                 nn.Linear(64, self.num_param_to_predict),
             )
         
-        # 添加scale_factor预测分支
+        # Scale factor prediction layers
         if self.auto_scale:
-            self.scale_factor_layers = nn.Sequential(
-                ConvBlock(256, 128),
+            self.trans_scale_factor_layers = nn.Sequential(
+                ConvBlock(hidden_dim, 128),
                 ConvBlock(128, 64),
                 nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
                 nn.Linear(64, 1),
-                nn.Sigmoid()  # 输出0-1范围，后续会映射到1e-2到1e2
+                nn.Tanh()
+            )
+            self.axis_scale_factor_layers = nn.Sequential(
+                ConvBlock(hidden_dim, 128),
+                ConvBlock(128, 64),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(64, 1),
+                nn.Tanh()
             )
         
         self.net = nn.ModuleList(list(self.convs.values()))
-    
-    def forward(self, input_features):
+
+    def _fuse_features(self, features_list):
+        """
+        Fuse multi-scale features using the specified fusion method
+        
+        Args:
+            features_list: List of feature tensors [B, hidden_dim, H, W]
+        
+        Returns:
+            fused_features: Fused feature tensor [B, hidden_dim, H, W]
+        """
+        if len(features_list) == 1:
+            return features_list[0]
+        
+        if self.fusion_method == 'weighted_sum':
+            # Weighted sum with learnable weights
+            weights = F.softmax(self.scale_weights, dim=0)
+            fused_features = sum(w * feat for w, feat in zip(weights, features_list))
+            
+        elif self.fusion_method == 'attention':
+            # Attention-based fusion
+            attention_scores = []
+            for feat in features_list:
+                score = self.scale_attention(feat)  # [B, 1]
+                attention_scores.append(score)
+            
+            # Normalize attention scores
+            attention_weights = F.softmax(torch.stack(attention_scores, dim=1), dim=1)  # [B, num_scales, 1]
+            
+            # Apply attention weights
+            stacked_features = torch.stack(features_list, dim=1)  # [B, num_scales, hidden_dim, H, W]
+            attention_weights = attention_weights.unsqueeze(-1).unsqueeze(-1)  # [B, num_scales, 1, 1, 1]
+            fused_features = torch.sum(stacked_features * attention_weights, dim=1)  # [B, hidden_dim, H, W]
+            
+        elif self.fusion_method == 'conv':
+            # Convolutional fusion
+            concatenated = torch.cat(features_list, dim=1)  # [B, hidden_dim*num_scales, H, W]
+            fused_features = self.fusion_conv(concatenated)  # [B, hidden_dim, H, W]
+            
+        elif self.fusion_method == 'avg':
+            # Simple average
+            fused_features = torch.stack(features_list, dim=0).mean(dim=0)
+            
+        elif self.fusion_method == 'max':
+            # Element-wise maximum
+            fused_features = torch.stack(features_list, dim=0).max(dim=0)[0]
+            
+        else:
+            raise ValueError(f"Unknown fusion method: {self.fusion_method}")
+        
+        return fused_features
+
+    def forward(self, ref_hidden_states, tar_hidden_states):
+        """
+        Forward pass with cross attention between ref and tar hidden states
+        
+        Args:
+            ref_hidden_states: List of hidden states from reference DARES model
+            tar_hidden_states: List of hidden states from target DARES model
+        
+        Returns:
+            axisangle: Predicted axis-angle rotation
+            translation: Predicted translation
+            intrinsics_mat: Predicted intrinsics matrix (if predict_intrinsics=True)
+        """
         def predict_intrinsics(feature_for_intrinsics):
             batch_size = feature_for_intrinsics.shape[0]
-            device = feature_for_intrinsics.device
             
-            # prepare intrinsics matrix
+            # Prepare intrinsics matrix
             intrinsics_mat = torch.eye(4, device=device).unsqueeze(0)
             intrinsics_mat = intrinsics_mat.repeat(batch_size, 1, 1)
             
-            # do the prediction
+            # Do the prediction
             intrinsics = self.intrinsics_layers(feature_for_intrinsics)
             
             # Apply sigmoid to normalize predictions to [0, 1] range for numerical stability
             intrinsics_normalized = torch.sigmoid(intrinsics)
             
             # Scale focal lengths to reasonable range [0.5, 2.5] times image dimensions
-            # This ensures positive values and prevents singularity
             foci_scale_min, foci_scale_max = 0.5, 2.5
             foci_normalized = intrinsics_normalized[:, :2]
             foci_scaled = foci_scale_min + foci_normalized * (foci_scale_max - foci_scale_min)
             foci = foci_scaled * torch.tensor([self.image_width, self.image_height], device=device)
             
             # Apply softplus and add minimum threshold to ensure positive focal lengths
-            foci = self.softplus(foci) + 1e-3  # Minimum focal length to prevent singularity
+            foci = self.softplus(foci) + 1e-3
+            
             if self.num_param_to_predict == 4:
                 # For full intrinsics, ensure principal points are within valid range
                 offsets_normalized = intrinsics_normalized[:, 2:]
-                # Map to [0.1, 0.9] of image dimensions to avoid edge cases
                 offsets = (0.1 + offsets_normalized * 0.8) * torch.tensor([self.image_width, self.image_height], device=device)
             else:
-                # For simplified intrinsics, set principal points to image center with proper scaling
+                # For simplified intrinsics, set principal points to image center
                 offsets = torch.ones((batch_size, 2), device=device) * torch.tensor([self.image_width / 2.0, self.image_height / 2.0], device=device)
             
             # Construct intrinsics matrix safely with bounds checking
-            intrinsics_mat[:, 0, 0] = torch.clamp(foci[:, 0], min=1e-3)  # fx - ensure positive
-            intrinsics_mat[:, 1, 1] = torch.clamp(foci[:, 1], min=1e-3)  # fy - ensure positive  
-            intrinsics_mat[:, 0, 2] = torch.clamp(offsets[:, 0], min=1.0, max=self.image_width-1.0)  # cx
-            intrinsics_mat[:, 1, 2] = torch.clamp(offsets[:, 1], min=1.0, max=self.image_height-1.0)  # cy
-            return intrinsics_mat
-
-        last_features = [f[-1] for f in input_features]
-        device = last_features[0].device
-
-        # 确保网络层在正确设备上
-        for key, layer in self.convs.items():
-            self.convs[key] = layer.to(device)
-
-        cat_features = [self.relu(self.convs["squeeze"](f)) for f in last_features]
-        cat_features = torch.cat(cat_features, 1)
-        
-        # 应用KNN处理 (在特征提取后，pose预测前)
-        if self.use_knn:
-            # 对concatenated features进行KNN处理
-            # 先进行一次pooling得到global特征用于KNN
-            pooled_features = F.adaptive_avg_pool2d(cat_features, 1).view(cat_features.size(0), -1)
-            enhanced_pooled_features = self.knn_processor(pooled_features.unsqueeze(-1).unsqueeze(-1))
-            enhanced_pooled_features = enhanced_pooled_features.view(pooled_features.size(0), -1)
+            mean_foci = torch.mean(foci, dim=0)
+            mean_offsets = torch.mean(offsets, dim=0)
+            intrinsics_mat[:, 0, 0] = torch.clamp(mean_foci[0], min=1e-3)  # fx
+            intrinsics_mat[:, 1, 1] = torch.clamp(mean_foci[1], min=1e-3)  # fy
+            intrinsics_mat[:, 0, 2] = torch.clamp(mean_offsets[0], min=1.0, max=self.image_width-1.0)  # cx
+            intrinsics_mat[:, 1, 2] = torch.clamp(mean_offsets[1], min=1.0, max=self.image_height-1.0)  # cy
             
-            # 将增强的全局特征信息融合回原始特征图
-            # 这里使用简单的广播加法，您也可以设计更复杂的融合策略
-            enhanced_features = enhanced_pooled_features.unsqueeze(-1).unsqueeze(-1)
-            enhanced_features = enhanced_features.expand_as(cat_features)
-            
-            # 特征融合：原始特征 + KNN增强特征
-            cat_features = cat_features + 0.1 * enhanced_features  # 使用较小的权重避免主导
+            return intrinsics_mat        # Extract and process features from specified scales
+        ref_features_list = []
+        tar_features_list = []
         
-        out = cat_features
+        # Get target spatial size from the largest scale (assuming index 0 is largest)
+        target_scale_idx = self.use_scales[0] if len(self.use_scales) > 0 else 0
+        target_size = ref_hidden_states[target_scale_idx].shape[2:]  # (H, W)
+        
+        for i, scale_idx in enumerate(self.use_scales):
+            # Extract features from specified scale
+            ref_scale_features = ref_hidden_states[scale_idx]  # [B, C_i, H_i, W_i]
+            tar_scale_features = tar_hidden_states[scale_idx]  # [B, C_i, H_i, W_i]
+            
+            # Apply squeeze convolution to unify channels
+            ref_squeezed = self.relu(self.ref_squeeze_layers[i](ref_scale_features))  # [B, hidden_dim, H_i, W_i]
+            tar_squeezed = self.relu(self.tar_squeeze_layers[i](tar_scale_features))  # [B, hidden_dim, H_i, W_i]
+            
+            # Resize to target size if necessary
+            if ref_squeezed.shape[2:] != target_size:
+                ref_squeezed = F.interpolate(ref_squeezed, size=target_size, mode='bilinear', align_corners=False)
+                tar_squeezed = F.interpolate(tar_squeezed, size=target_size, mode='bilinear', align_corners=False)
+            
+            ref_features_list.append(ref_squeezed)
+            tar_features_list.append(tar_squeezed)
+        
+        # Fuse multi-scale features
+        ref_features = self._fuse_features(ref_features_list)  # [B, hidden_dim, H, W]
+        tar_features = self._fuse_features(tar_features_list)  # [B, hidden_dim, H, W]
+        
+        # Reshape for attention: [B, H*W, hidden_dim]
+        B, C, H, W = ref_features.shape
+        ref_features_flat = ref_features.view(B, C, H*W).transpose(1, 2)  # [B, H*W, hidden_dim]
+        tar_features_flat = tar_features.view(B, C, H*W).transpose(1, 2)  # [B, H*W, hidden_dim]
+        
+        # Cross attention: tar attends to ref
+        cross_attended, _ = self.cross_attention(
+            query=tar_features_flat,
+            key=ref_features_flat,
+            value=ref_features_flat
+        )
+        
+        # Residual connection and layer norm
+        cross_attended = self.layer_norm1(cross_attended + tar_features_flat)
+        
+        # Self attention on cross-attended features
+        self_attended, _ = self.self_attention(
+            query=cross_attended,
+            key=cross_attended,
+            value=cross_attended
+        )
+        
+        # Residual connection and layer norm
+        self_attended = self.layer_norm2(self_attended + cross_attended)
+        
+        # Feed forward network
+        ffn_output = self.ffn(self_attended)
+        attended_features = self_attended + ffn_output
+        
+        # Reshape back to spatial dimensions: [B, hidden_dim, H, W]
+        attended_features = attended_features.transpose(1, 2).view(B, C, H, W)
+        
+        # Pose prediction through conv layers
+        out = attended_features
         for i in range(3):
             out = self.convs[("pose", i)](out)
             if i != 2:
                 out = self.relu(out)
-
+        
+        # Global average pooling
         out = out.mean(3).mean(2)
         
-        # 预测scale_factor (从1e-2到1e2的范围)
+        # Scale factor prediction
         if self.auto_scale:
-            scale_factor = self.scale_factor_layers(cat_features)
-            # 将0-1范围映射到1e-2到1e2 (log scale)
-            scale_factor = torch.exp(scale_factor * (torch.log(torch.tensor(1e2, device=device)) - torch.log(torch.tensor(1e-2, device=device))) + torch.log(torch.tensor(1e-2, device=device)))
+            trans_scale_factor = self.trans_scale_factor_layers(attended_features)
+            axis_scale_factor = self.axis_scale_factor_layers(attended_features)
+            trans_scale_factor = torch.exp(trans_scale_factor * 5 + 0.5) * 1e-2
+            axis_scale_factor = torch.exp(axis_scale_factor * 5 + 0.5) * 1e-2
         else:
-            scale_factor = torch.ones(out.shape[0], 1, device=device)
+            trans_scale_factor = torch.ones(out.shape[0], 1, device=device) * 1e-2
+            axis_scale_factor = torch.ones(out.shape[0], 1, device=device) * 1e-2
         
-        # NOTE : Here is a key issue of training on different datasets. On previous studies this is fixed
-        # Beili says this vary from dataset to dataset.
-        # 应用通过网络估计的scale_factor
-        out = 0.001 * out.view(-1, self.num_frames_to_predict_for, 1, 6) * scale_factor.unsqueeze(1).unsqueeze(2)
-
-        axisangle = out[..., :3]
-        translation = out[..., 3:]        # 更新KNN特征库 (在训练时)
-        if self.use_knn and self.training:
-            # 提取当前batch的特征和预测的pose用于更新特征库
-            current_features = F.adaptive_avg_pool2d(cat_features, 1).view(cat_features.size(0), -1)
-            current_poses = out.view(out.size(0), -1)  # flatten pose predictions
-            self.knn_processor.update_feature_bank(current_features, current_poses)
+        # Apply scale factors
+        out = out.view(-1, self.num_frames_to_predict_for, 1, 6)
+        
+        axisangle = out[..., :3] * axis_scale_factor.unsqueeze(1).unsqueeze(2)
+        translation = out[..., 3:] * trans_scale_factor.unsqueeze(1).unsqueeze(2)
+        
+        print(f'axis_scale: {axis_scale_factor.mean().item():.4f}, trans_scale: {trans_scale_factor.mean().item():.4f}', end='\r')
         
         if self.predict_intrinsics:
-            return axisangle, translation, predict_intrinsics(cat_features)
+            return axisangle, translation, predict_intrinsics(attended_features)
         else:
             return axisangle, translation
