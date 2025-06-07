@@ -6,30 +6,27 @@ DefaultOpt_dict = {
         "png": False,
         "height": 256,
         "width": 320,
-        "disparity_smoothness": 1e-4,
-        "position_smoothness": 1e-3,
-        "consistency_constraint": 0.01,
-        "epipolar_constraint": 0.01,
-        "geometry_constraint": 0.01,
-        "transform_constraint": 0.01,
-        "transform_smoothness": 0.01,
-        "warm_up_step": 10,
-        "self_ssi": False,
+        "disparity_smoothness": 1e-5,
+        "position_smoothness": 1e-5,
+        "transform_constraint": 1e-4,
+        "transform_smoothness": 1e-4,
+        "warm_up_step": -1,
         "self_ssi_constraint": 0.1,
         "scales": [0, 1, 2, 3],
+        "self_ssi": True,
         "min_depth": 0.1,
-        "max_depth": 150.0,
+        "max_depth": 20.0,
         "use_stereo": False,
         "frame_ids": [0, -1, 1],
         "other_frame_init_weight" : 1e-5,
 
         # OPTIMIZATION options
         "batch_size": 12,
-        "learning_rate": 1e-4,
-        "weight_decay": 1e-4,
+        "learning_rate": 1e-5,
+        "weight_decay": 1e-7,
+        "weight_decay_pose" : 1e-5,
         "pos_learning_rate": 1e-4,
-        "train_pos_steps": 1,
-        "num_epochs": 2,
+        "num_epochs": 20,
         "scheduler_step_size": 10,
 
         # ABLATION options
@@ -47,7 +44,6 @@ DefaultOpt_dict = {
 
         # LOADING options
         "load_weights_folder": None,
-        "models_to_load": ["position_encoder", "position"],
 
         # LOGGING options
         "log_frequency": 100,
@@ -86,4 +82,4 @@ class DotDict(dict):
     def __delattr__(self, attr):
         del self[attr]
 
-DefaultOpt = DotDict(DefaultOpt_dict)
+AttnEncoderOpt = DotDict(DefaultOpt_dict)
