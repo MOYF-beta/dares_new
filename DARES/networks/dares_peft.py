@@ -37,13 +37,15 @@ class DepthAnythingDepthEstimationHead(nn.Module):
 class DARES(nn.Module):
     def __init__(self, 
                  r=[14,14,12,12,10,10,8,8,8,8,8,8], 
-                 target_modules=['query', 'value'],
+                 target_modules=['query', 'value','Linear'],
                  pretrained_path=None, 
                  enable_refine_net=False, 
                  num_blocks=4, 
                  feat_channels=64,
                  use_dora=True, full_finetune = False):  # 添加use_dora参数
         super(DARES, self).__init__()
+        
+        self.full_finetune = full_finetune  # Store for save/load methods
         
         # Load base model
         base_model = DepthAnythingForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Small-hf")
@@ -60,42 +62,71 @@ class DARES(nn.Module):
             target_modules=target_modules,
             use_dora=use_dora,  # 启用或禁用DoRA
         )
-        
-        # Apply PEFT to backbone
+          # Apply PEFT to backbone
         self.backbone = get_peft_model(self.backbone, peft_config)
-        
-        # Freeze base model parameters
-        for param in self.backbone.parameters():
-            param.requires_grad = full_finetune
-            
-        # Unfreeze LoRA/DoRA parameters
-        for name, param in self.backbone.named_parameters():
-            if "lora" in name or (use_dora and "dora" in name):
-                param.requires_grad = True
         
         if pretrained_path is not None:
             state_dict = torch.load(pretrained_path, weights_only=True)
             base_model.load_state_dict(state_dict, strict=False)
             
         self.neck = base_model.neck
-        for param in self.neck.parameters():
-            param.requires_grad = full_finetune
         model_head = base_model.head
         self.head = DepthAnythingDepthEstimationHead(model_head)
         
+        # Configure parameter training based on full_finetune flag
+        if full_finetune:
+            # Enable training for all parameters
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+            for param in self.neck.parameters():
+                param.requires_grad = True
+            for param in self.head.parameters():
+                param.requires_grad = True
+        else:
+            # Freeze all base model parameters first
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            for param in self.neck.parameters():
+                param.requires_grad = False
+            
+            # Only enable PEFT parameters (LoRA/DoRA) for training
+            for name, param in self.backbone.named_parameters():
+                if "lora" in name or (use_dora and "dora" in name):
+                    param.requires_grad = True
+            
+            # Always enable head parameters for training
+            for param in self.head.parameters():
+                param.requires_grad = True
         if enable_refine_net:
             self.refine_net = Refine_net(num_blocks, feat_channels)
-        self.enable_refine_net = enable_refine_net
-
+        self.enable_refine_net = enable_refine_net    
     def save_parameters(self, filename: str) -> None:
-        """Save PEFT parameters"""
-        self.backbone.save_pretrained(filename)
-        print(f'Saved {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters to {filename}')
+        """Save model parameters"""
+        if self.full_finetune:
+            # Save entire model state dict for full finetune
+            torch.save(self.state_dict(), f"{filename}/full_model.pth")
+            print(f'Saved full model parameters to {filename}/full_model.pth')
+        else:
+            # Save only PEFT parameters
+            self.backbone.save_pretrained(filename)
+            # Also save head parameters
+            torch.save(self.head.state_dict(), f"{filename}/head.pth")
+            print(f'Saved {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters and head to {filename}')
 
     def load_parameters(self, filename: str) -> None:
-        """Load PEFT parameters"""
-        self.backbone.load_adapter(filename, "default")
-        print(f'Loaded {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters from {filename}')
+        """Load model parameters"""
+        if self.full_finetune:
+            # Load entire model state dict for full finetune
+            state_dict = torch.load(f"{filename}/full_model.pth", weights_only=True)
+            self.load_state_dict(state_dict, strict=False)
+            print(f'Loaded full model parameters from {filename}/full_model.pth')
+        else:
+            # Load PEFT parameters
+            self.backbone.load_adapter(filename, "default")
+            # Load head parameters
+            head_state_dict = torch.load(f"{filename}/head.pth", weights_only=True)
+            self.head.load_state_dict(head_state_dict)
+            print(f'Loaded {"DoRA" if self.backbone.peft_config.use_dora else "LoRA"} parameters and head from {filename}')
 
     def forward(self, pixel_values):
         outputs = self.backbone.forward_with_filtered_kwargs(
@@ -107,7 +138,8 @@ class DARES(nn.Module):
         patch_height = height // patch_size
         patch_width = width // patch_size
         hidden_states = self.neck(hidden_states, patch_height, patch_width)
-        
+        # print(f"Hidden states shape: {[hs.shape for hs in hidden_states]}")
+        # Hidden states shape: [torch.Size([12, 64, 18, 22]), torch.Size([12, 64, 36, 44]), torch.Size([12, 64, 72, 88]), torch.Size([12, 64, 144, 176])]
         outputs = {}
         outputs[("disp", 0)] = self.head(hidden_states[3], height, width)
         outputs[("disp", 1)] = self.head(hidden_states[2], height/2, width/2)
