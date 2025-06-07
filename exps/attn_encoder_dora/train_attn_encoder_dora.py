@@ -11,9 +11,9 @@ from exps.find_best_parametric import find_best_parametric
 from exps.load_other_models import load_DARES
 opt = AttnEncoderOpt
 
-pretrained_root_dir = './DARES/af_sfmlearner_weights'
+pretrained_root_dir = 'logs/baidalan1_syntheticcolon/models'
 if __name__ == "__main__":
-    我有多摆 = 'baidalan'
+    我有多摆 = 'baidalan2'
     我想做实验嘛 = False
     这些代码是不是垃圾 = True
     # SyntheticColon
@@ -24,20 +24,21 @@ if __name__ == "__main__":
     trainer.train()
     find_best_parametric(load_DARES, model_name,
                             only_keep_best=False, ds_name='SyntheticColon', dataset=ds_test_syntheticcolon, peft=True)
-    # SCARED
-    model_name = f'{我有多摆}_scared'
-    trainer = TrainerAttnEncoder(model_name, log_path, opt, 
-                      train_eval_ds={'train': ds_train, 'val': ds_val},
-                      pretrained_root_dir=pretrained_root_dir)
-    find_best_parametric(load_DARES, model_name,
-                          only_keep_best=False, ds_name='SCARED', dataset=ds_test, peft=True, pose_seq = 1)
-    find_best_parametric(load_DARES, model_name,
-                          only_keep_best=False, ds_name='SCARED', dataset=ds_test, peft=True, pose_seq = 2)
-    # C3VD
-    model_name = f'{我有多摆}_c3vd'
-    trainer = TrainerAttnEncoder(model_name, log_path, opt, 
-                      train_eval_ds={'train': ds_train_c3vd, 'val': ds_test_c3vd},
-                      pretrained_root_dir=pretrained_root_dir)
-    trainer.train()
-    find_best_parametric(load_DARES, model_name,
-                          only_keep_best=False, ds_name='C3VD', dataset=ds_test_c3vd, peft=True)
+    # # SCARED
+    # model_name = f'{我有多摆}_scared'
+    # trainer = TrainerAttnEncoder(model_name, log_path, opt, 
+    #                   train_eval_ds={'train': ds_train, 'val': ds_val},
+    #                   pretrained_root_dir=pretrained_root_dir)
+    # trainer.train()
+    # find_best_parametric(load_DARES, model_name,
+    #                       only_keep_best=False, ds_name='SCARED', dataset=ds_test, peft=True, pose_seq = 1)
+    # find_best_parametric(load_DARES, model_name,
+    #                       only_keep_best=False, ds_name='SCARED', dataset=ds_test, peft=True, pose_seq = 2)
+    # # C3VD
+    # model_name = f'{我有多摆}_c3vd'
+    # trainer = TrainerAttnEncoder(model_name, log_path, opt, 
+    #                   train_eval_ds={'train': ds_train_c3vd, 'val': ds_test_c3vd},
+    #                   pretrained_root_dir=pretrained_root_dir)
+    # trainer.train()
+    # find_best_parametric(load_DARES, model_name,
+    #                       only_keep_best=False, ds_name='C3VD', dataset=ds_test_c3vd, peft=True)
