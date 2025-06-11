@@ -106,7 +106,7 @@ class VitTransformDecoder(nn.Module):
             if down_sample_method == 'interpolation':
             # 使用插值下采样
                 head = nn.Sequential(
-                    nn.Upsample(scale_factor=1/(2), mode='bilinear', align_corners=False),
+                    nn.Upsample(scale_factor=1/(2), mode='bilinear', align_corners=True),
                 )
             elif down_sample_method == 'conv':
             # 使用卷积下采样
