@@ -50,47 +50,33 @@ class DARESTrainer(Trainer):
         
         # Get channel dimensions from DARES backbone
         # DARES typically outputs 4 scales with 64 channels each
-        num_ch_enc = [64, 64, 64, 64]  # This should match DARES output
-        
-        # Create cross-attention pose decoder
-        self.models["pose"] = CrossAttnPoseDecoder_with_intrinsics(
-            num_ch_enc=num_ch_enc,
-            num_input_features=2,  # ref and tar
-            predict_intrinsics=self.opt.learn_intrinsics,
-            image_width=self.opt.width,
-            image_height=self.opt.height,
-            auto_scale=True,
-            num_heads=self.dares_config['num_heads'],
-            hidden_dim=self.dares_config['hidden_dim'],
-            use_scales=self.dares_config['use_scales'],
-            fusion_method=self.dares_config['fusion_method']
-        )
+
         
         # Move models to device
         for model_name, model in self.models.items():
             model.to(self.device)
         
         # Setup parameter groups for optimizers
-        self._setup_parameter_groups()
+        # self._setup_parameter_groups()
         
         # Load pretrained weights if provided
         if self.pretrained_root_dir:
             self._load_pretrained_weights()
     
-    def _setup_parameter_groups(self):
-        """Setup parameter groups for depth and pose optimization"""
-        # Depth model parameters
-        self.param_monodepth = list(self.models["depth_model"].parameters())
+    # def _setup_parameter_groups(self):
+    #     """Setup parameter groups for depth and pose optimization"""
+    #     # Depth model parameters
+    #     self.param_monodepth = list(self.models["depth_model"].parameters())
         
-        # Pose model parameters (DARES feature extractors + pose decoder)
-        self.param_pose_net = (
-            list(self.models["dares_ref"].parameters()) +
-            list(self.models["dares_tar"].parameters()) +
-            list(self.models["pose"].parameters())
-        )
+    #     # Pose model parameters (DARES feature extractors + pose decoder)
+    #     self.param_pose_net = (
+    #         list(self.models["dares_ref"].parameters()) +
+    #         list(self.models["dares_tar"].parameters()) +
+    #         list(self.models["pose"].parameters())
+    #     )
         
-        print(f"Depth model parameters: {len(self.param_monodepth)}")
-        print(f"Pose model parameters: {len(self.param_pose_net)}")
+    #     print(f"Depth model parameters: {len(self.param_monodepth)}")
+    #     print(f"Pose model parameters: {len(self.param_pose_net)}")
     
     def _load_pretrained_weights(self):
         """Load pretrained weights for DARES models"""
