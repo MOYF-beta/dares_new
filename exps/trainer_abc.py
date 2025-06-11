@@ -6,6 +6,8 @@ import time
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from PIL import Image
 from exps.dataset import DataLoaderX as DataLoader
 from torch.utils.data import RandomSampler, Sampler
 from torch.utils.tensorboard import SummaryWriter
@@ -70,18 +72,22 @@ class Trainer(ABC):
         pass
 
     def __init__(self, model_name, log_dir, options, train_eval_ds={},
-                  pretrained_root_dir=None, merge_val_as_train=False, use_supervised_loss = True, debug = False, use_af_pose=False):
+                  pretrained_root_dir=None, merge_val_as_train=False, 
+                  use_supervised_loss = True, debug = False, use_af_pose=False,
+                  accumulate_position_gradients_for_pose=False, save_samples_num=10):
         if debug:
             print("\033[91m WARNING: Debug mode activated, only train 1 epoch\033[0m")
             options.num_epochs = 2
             options.batch_size = 8
         self.use_af_pose = use_af_pose
+        self.accumulate_position_gradients_for_pose = accumulate_position_gradients_for_pose
         self.opt = options
         self.log_path = os.path.join(log_dir, model_name)
         self.use_supervised_loss = use_supervised_loss
         self.models = {}  
         self.param_monodepth = []  
         self.param_pose_net = []
+        self.save_samples_num = save_samples_num
         
         self.device = device
         self.train_pos = False
@@ -190,7 +196,6 @@ class Trainer(ABC):
                 param.requires_grad = False
             self.models["depth_model"].eval()
 
-                
     def set_eval(self):
         """Convert all models to testing/evaluation mode"""
         for name, model in self.models.items():
@@ -199,7 +204,7 @@ class Trainer(ABC):
         self.models["depth_model"].eval()
         self.models["transform_encoder"].eval()
         self.models["transform"].eval()
-        self.models["pose_encoder"].eval()
+        self.models["pose_encoder"].eval() if "pose_encoder" in self.models else None
         self.models["pose"].eval()
 
     def train(self):
@@ -211,6 +216,10 @@ class Trainer(ABC):
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
                 self.save_model()
+        
+        # Save samples after training if save_samples_num > 0
+        if self.save_samples_num > 0:
+            self.save_depth_samples()
 
     def run_epoch(self):
         """Run a single epoch of training and validation"""
@@ -223,16 +232,28 @@ class Trainer(ABC):
             self.set_train(train_position_only=True)
             outputs, losses = self.process_batch_position(inputs)
             loss_pose = losses["loss"]
-
-            self.optimizer_pose.zero_grad()
-            loss_pose.backward()
-            self.optimizer_pose.step()
-
-            # Train depth
+            if self.accumulate_position_gradients_for_pose:
+                for param in self.param_pose_net:
+                    if param.grad is not None:
+                        param.grad.data *= 0.1
+                loss_pose.backward()
+                self.optimizer_pose.step()
+                self.optimizer_pose.zero_grad()    
+            else:
+                self.optimizer_pose.zero_grad()
+                loss_pose.backward()
+                self.optimizer_pose.step()            # Train depth
             ssi_warming_up = self.opt.self_ssi and self.epoch < int(self.opt.warm_up_step)
             # print(f"Epoch {self.epoch}, batch {batch_idx}, ssi_warming_up: {ssi_warming_up}",end = '\r')
             random_train = random.random() < 0.1 * (self.epoch+1)
-            if not self.opt.self_ssi or ssi_warming_up or random_train:
+            
+            # Determine whether to train depth network
+            # - If self_ssi is disabled: always train
+            # - If self_ssi is enabled but not in warming up: always train  
+            # - If self_ssi is enabled and in warming up: train with probability
+            should_train_depth = not self.opt.self_ssi or not ssi_warming_up or random_train
+            
+            if should_train_depth:
                 self.set_train(train_position_only=False, freeze_depth=ssi_warming_up if self.opt.self_ssi else False)
                 outputs, losses = self.process_batch_depth(inputs)
                 loss_depth = losses["loss"]
@@ -628,3 +649,82 @@ class Trainer(ABC):
 
         save_path = os.path.join(save_folder, "{}.pth".format("adam"))
         torch.save(self.optimizer_pose.state_dict(), save_path)
+
+    def save_depth_samples(self):
+        """Save depth visualization samples from training dataset"""
+        print(f"\033[92mSaving {self.save_samples_num} depth visualization samples...\033[0m")
+        
+        # Create samples directory
+        samples_dir = os.path.join(self.log_path, "depth_samples")
+        if not os.path.exists(samples_dir):
+            os.makedirs(samples_dir)
+        
+        # Set model to evaluation mode
+        self.set_eval()
+        
+        # Get training dataset
+        train_dataset = self.train_loader.dataset
+        if hasattr(train_dataset, 'datasets'):  # ConcatDataset
+            dataset_len = len(train_dataset.datasets[0])
+        else:
+            dataset_len = len(train_dataset)
+        
+        # Calculate indices for evenly spaced samples
+        step = max(1, dataset_len // self.save_samples_num)
+        sample_indices = [i * step for i in range(self.save_samples_num)]
+        
+        with torch.no_grad():
+            for idx, sample_idx in enumerate(sample_indices):
+                if sample_idx >= dataset_len:
+                    break
+                    
+                # Get sample from dataset
+                if hasattr(train_dataset, 'datasets'):  # ConcatDataset
+                    sample = train_dataset.datasets[0][sample_idx]
+                else:
+                    sample = train_dataset[sample_idx]
+                
+                # Prepare inputs
+                inputs = {}
+                for key, value in sample.items():
+                    if isinstance(value, torch.Tensor):
+                        inputs[key] = value.unsqueeze(0).to(self.device)
+                    else:
+                        inputs[key] = value
+                  # Get depth prediction
+                try:
+                    depth_input = self.get_depth_input(inputs)
+                    outputs = self.models["depth_model"](depth_input)
+                except Exception as e:
+                    print(f"Warning: Failed to process sample {sample_idx}: {e}")
+                    continue
+                
+                # Convert disparity to depth
+                disp = outputs[("disp", 0)]
+                _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+                
+                # Save original image
+                color_img = inputs[("color", 0, 0)].squeeze().cpu()
+                if color_img.shape[0] == 3:  # RGB
+                    color_img = color_img.permute(1, 2, 0)
+                color_img = (color_img.numpy() * 255).astype(np.uint8)
+                
+                color_pil = Image.fromarray(color_img)
+                color_path = os.path.join(samples_dir, f"sample_{idx:03d}_color.png")
+                color_pil.save(color_path)
+                
+                # Save depth visualization
+                depth_img = depth.squeeze().cpu().numpy()
+                plt.figure(figsize=(10, 6))
+                plt.imshow(depth_img, cmap='plasma')
+                plt.colorbar(label='Depth (m)')
+                plt.title(f'Predicted Depth - Sample {idx}')
+                plt.axis('off')
+                
+                depth_path = os.path.join(samples_dir, f"sample_{idx:03d}_depth.png")
+                plt.savefig(depth_path, bbox_inches='tight', dpi=150)
+                plt.close()
+                
+                print(f"Saved sample {idx+1}/{self.save_samples_num}: {color_path}, {depth_path}")
+        
+        print(f"\033[92mCompleted saving depth samples to: {samples_dir}\033[0m")
