@@ -45,7 +45,7 @@ def get_unique_name(name):
         counter += 1
     return unique_name
 
-random_seeds(42)
+random_seeds(23333666)
 
 """SCARED DATASET SETUP"""
 ds_path = os.path.join(ds_base, 'SCARED_Images_Resized')
@@ -264,9 +264,9 @@ ds_test_hamlyn = SCAREDRAWDataset(
 ds_path = os.path.join(ds_base, 'PitVis_as_SCARED')
 splits_dir = os.path.join(ds_base, 'PitVis_as_SCARED', 'splits')
 split_train = os.path.join(ds_path, 'splits/train_files.txt')
-split_test = os.path.join(ds_path, 'splits/test_files.txt')
+# split_test = os.path.join(ds_path, 'splits/test_files.txt')
 train_filenames = readlines(split_train)
-test_filenames = readlines(split_test)
+# test_filenames = readlines(split_test)
 ds_train_pitvis = SCAREDRAWDataset(
     data_path=ds_path,
     filenames=train_filenames,
@@ -277,16 +277,16 @@ ds_train_pitvis = SCAREDRAWDataset(
     is_train=True,
     img_ext='.png'
 )
-ds_test_pitvis = SCAREDRAWDataset(
-    data_path=ds_path,
-    filenames=test_filenames,
-    frame_idxs=[0],
-    height=DefaultOpt.height,
-    width=DefaultOpt.width,
-    num_scales=1,
-    is_train=False,
-    img_ext='.png'
-)
+# ds_test_pitvis = SCAREDRAWDataset(
+#     data_path=ds_path,
+#     filenames=test_filenames,
+#     frame_idxs=[0],
+#     height=DefaultOpt.height,
+#     width=DefaultOpt.width,
+#     num_scales=1,
+#     is_train=False,
+#     img_ext='.png'
+# )
 '''SyntheticColon dataset setup'''
 ds_path = os.path.join(ds_base, 'SyntheticColon_as_SCARED')
 splits_dir = os.path.join(ds_base, 'SyntheticColon_as_SCARED', 'splits')
@@ -301,10 +301,10 @@ ds_train_syntheticcolon = SCAREDRAWDataset(
     height=DefaultOpt.height,
     width=DefaultOpt.width,
     min_depth=0.1,
-    max_depth=150,
+    max_depth=20,
     num_scales=4,
     load_depth=True,
-    depth_rescale_factor = 150 / 65535,
+    depth_rescale_factor = 20 / 65535,
     is_train=True,
     img_ext='.png'
 )
@@ -318,8 +318,8 @@ ds_test_syntheticcolon = SCAREDRAWDataset(
     is_train=False,
     load_depth=True,
     min_depth=0.1,
-    max_depth=150,
-    depth_rescale_factor= 150 / 65535,
+    max_depth=20,
+    depth_rescale_factor= 20 / 65535,
     img_ext='.png'
 )
 ds_base_model_train = torch.utils.data.ConcatDataset([
@@ -336,8 +336,8 @@ def check_ds():
     print(f"Test C3VD: {len(ds_test_c3vd)}")
     print(f"Train Hamlyn: {len(ds_train_hamlyn)}")
     print(f"Test Hamlyn: {len(ds_test_hamlyn)}")
-    print(f"Train PitVis: {len(ds_train_pitvis)}")
-    print(f"Test PitVis: {len(ds_test_pitvis)}")
+    # print(f"Train PitVis: {len(ds_train_pitvis)}")
+    # print(f"Test PitVis: {len(ds_test_pitvis)}")
     print(f"Train SyntheticColon: {len(ds_train_syntheticcolon)}")
     print(f"Test SyntheticColon: {len(ds_test_syntheticcolon)}")
     ds_to_check = [ds_test_syntheticcolon]
