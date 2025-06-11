@@ -112,7 +112,7 @@ class PoseDecoder(nn.Module):
 
 class PoseDecoder_with_intrinsics(nn.Module):
     def __init__(self, num_ch_enc, num_input_features, num_frames_to_predict_for=None, stride=1,
-                 predict_intrinsics=False, simplified_intrinsic=False, image_width=None, image_height=None, auto_scale=True):
+                 predict_intrinsics=False, simplified_intrinsic=False, image_width=None, image_height=None, auto_scale=False):
         super(PoseDecoder_with_intrinsics, self).__init__()
         self.auto_scale = auto_scale
         self.num_ch_enc = num_ch_enc
@@ -638,8 +638,8 @@ class CrossAttnPoseDecoder_with_intrinsics(nn.Module):
             
             # Resize to target size if necessary
             if ref_squeezed.shape[2:] != target_size:
-                ref_squeezed = F.interpolate(ref_squeezed, size=target_size, mode='bilinear', align_corners=False)
-                tar_squeezed = F.interpolate(tar_squeezed, size=target_size, mode='bilinear', align_corners=False)
+                ref_squeezed = F.interpolate(ref_squeezed, size=target_size, mode='bilinear', align_corners=True)
+                tar_squeezed = F.interpolate(tar_squeezed, size=target_size, mode='bilinear', align_corners=True)
             
             ref_features_list.append(ref_squeezed)
             tar_features_list.append(tar_squeezed)
@@ -710,5 +710,265 @@ class CrossAttnPoseDecoder_with_intrinsics(nn.Module):
         
         if self.predict_intrinsics:
             return axisangle, translation, predict_intrinsics(attended_features)
+        else:
+            return axisangle, translation
+
+class LightweightViTBlock(nn.Module):
+    """Lightweight Vision Transformer block for processing patch features"""
+    def __init__(self, embed_dim, num_heads=4, mlp_ratio=2.0, dropout=0.1):
+        super(LightweightViTBlock, self).__init__()
+        
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.dropout1 = nn.Dropout(dropout)
+        
+        self.norm2 = nn.LayerNorm(embed_dim)
+        mlp_hidden_dim = int(embed_dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, mlp_hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_hidden_dim, embed_dim),
+            nn.Dropout(dropout)
+        )
+        
+    def forward(self, x):
+        # Self-attention with residual connection
+        norm_x = self.norm1(x)
+        attn_out, _ = self.attn(norm_x, norm_x, norm_x)
+        x = x + self.dropout1(attn_out)
+        
+        # MLP with residual connection
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class AF_OF_Posedecoder_with_intrinsics(nn.Module):
+    """
+    Appearance Flow and Optical Flow Pose Decoder with Intrinsics
+    
+    This decoder processes appearance flow and optical flow features by:
+    1. Stacking features along channels
+    2. Patch-based vectorization or ConvBlockWithAttention layers
+    3. Processing with lightweight Vision Transformer or multi-layer ConvBlockWithAttention
+    4. Convolutional prediction network similar to PoseDecoder_with_intrinsics
+    """
+    def __init__(self, af_channels=3, of_channels=2, patch_size=8, embed_dim=256, 
+                 num_vit_layers=2, num_heads=4, num_frames_to_predict_for=1, 
+                 predict_intrinsics=True, simplified_intrinsic=False, 
+                 image_width=None, image_height=None, auto_scale=False, dropout=0.5,
+                 input_height=256, input_width=320, feature_extractor='vit',
+                 num_conv_layers=3):
+        super(AF_OF_Posedecoder_with_intrinsics, self).__init__()
+        
+        self.af_channels = af_channels
+        self.of_channels = of_channels
+        self.patch_size = patch_size
+        self.embed_dim = embed_dim
+        self.num_frames_to_predict_for = num_frames_to_predict_for
+        self.predict_intrinsics = predict_intrinsics
+        self.auto_scale = auto_scale
+        self.input_height = input_height
+        self.input_width = input_width
+        self.feature_extractor = feature_extractor  # 'vit' or 'conv_attention'
+        self.num_conv_layers = num_conv_layers
+        self.feature_extractor = feature_extractor  # 'vit' or 'conv_attention'
+        self.num_conv_layers = num_conv_layers
+        
+        if predict_intrinsics:
+            assert image_width is not None and image_height is not None, \
+                "image_width and image_height must be provided if predict_intrinsics is True"
+            self.image_width = image_width
+            self.image_height = image_height
+        
+        # Total input channels after stacking AF and OF
+        total_channels = af_channels + of_channels
+        
+        # Patch embedding layer
+        self.patch_embed = nn.Conv2d(
+            total_channels, embed_dim, 
+            kernel_size=patch_size, stride=patch_size
+        )
+        
+        # Positional embedding (learned) - initialize in __init__ for proper weight loading
+        self.num_patches = (input_height // patch_size) * (input_width // patch_size)
+        self.pos_embed = nn.Parameter(torch.randn(1, self.num_patches, embed_dim) * 0.02)
+        
+        # Lightweight Vision Transformer blocks
+        self.vit_blocks = nn.ModuleList([
+            LightweightViTBlock(embed_dim, num_heads, dropout=dropout)
+            for _ in range(num_vit_layers)
+        ])
+          # Layer norm after ViT blocks
+        self.norm = nn.LayerNorm(embed_dim)
+          # Pose prediction layers (similar to PoseDecoder_with_intrinsics)
+        self.convs = OrderedDict()
+        self.convs[("pose", 0)] = nn.Conv2d(embed_dim, embed_dim, 3, 1, 1)
+        self.convs[("pose", 1)] = nn.Conv2d(embed_dim, embed_dim, 3, 1, 1)
+        self.convs[("pose", 2)] = nn.Conv2d(embed_dim, 6 * num_frames_to_predict_for, 1)
+        
+        self.relu = nn.ReLU()
+        self.softplus = nn.Softplus()
+          # Intrinsics prediction layers
+        if self.predict_intrinsics:
+            if simplified_intrinsic:
+                # fx, fy = ? ; cx = cy = 0.5
+                self.num_param_to_predict = 2
+            else:
+                # fx, fy, cx, cy = ?
+                self.num_param_to_predict = 4
+            
+            self.intrinsics_layers = nn.Sequential(
+                ConvBlock(embed_dim, embed_dim),
+                ConvBlock(embed_dim, 64),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(64, self.num_param_to_predict),
+            )
+          # Scale factor prediction layers
+        if self.auto_scale:
+            self.trans_scale_factor_layers = nn.Sequential(
+                ConvBlock(embed_dim, 128),
+                ConvBlock(128, 64),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(64, 1),
+                nn.Tanh()
+            )
+            self.axis_scale_factor_layers = nn.Sequential(
+                ConvBlock(embed_dim, 128),
+                ConvBlock(128, 64),
+                nn.AdaptiveAvgPool2d(1),
+                nn.Flatten(),
+                nn.Linear(64, 1),
+                nn.Tanh()
+            )
+        self.net = nn.ModuleList(list(self.convs.values()))
+    
+    def _resize_pos_embed(self, H, W):
+        """Resize positional embedding if input size is different from expected"""
+        expected_patches = (H // self.patch_size) * (W // self.patch_size)
+        if expected_patches != self.num_patches:
+            # Interpolate positional embedding to match new size
+            pH_new, pW_new = H // self.patch_size, W // self.patch_size
+            pH_old, pW_old = self.input_height // self.patch_size, self.input_width // self.patch_size
+            
+            # Reshape to 2D grid and interpolate
+            pos_embed_2d = self.pos_embed.view(1, pH_old, pW_old, self.embed_dim).permute(0, 3, 1, 2)
+            pos_embed_resized = F.interpolate(pos_embed_2d, size=(pH_new, pW_new), mode='bilinear', align_corners=True)
+            return pos_embed_resized.permute(0, 2, 3, 1).view(1, expected_patches, self.embed_dim)
+        return self.pos_embed
+    
+    def forward(self, appearance_flow, optical_flow):
+        """
+        Forward pass
+        
+        Args:
+            appearance_flow: Appearance flow tensor [B, af_channels, H, W]
+            optical_flow: Optical flow tensor [B, of_channels, H, W]
+        
+        Returns:
+            axisangle: Predicted axis-angle rotation
+            translation: Predicted translation
+            intrinsics_mat: Predicted intrinsics matrix (if predict_intrinsics=True)
+        """
+        def predict_intrinsics(feature_for_intrinsics):
+            batch_size = feature_for_intrinsics.shape[0]
+            
+            # Prepare intrinsics matrix
+            intrinsics_mat = torch.eye(4, device=device).unsqueeze(0)
+            intrinsics_mat = intrinsics_mat.repeat(batch_size, 1, 1)
+            
+            # Do the prediction
+            intrinsics = self.intrinsics_layers(feature_for_intrinsics)
+            
+            # Apply sigmoid to normalize predictions to [0, 1] range for numerical stability
+            intrinsics_normalized = torch.sigmoid(intrinsics)
+            
+            # Scale focal lengths to reasonable range [0.5, 2.5] times image dimensions
+            foci_scale_min, foci_scale_max = 0.5, 2.5
+            foci_normalized = intrinsics_normalized[:, :2]
+            foci_scaled = foci_scale_min + foci_normalized * (foci_scale_max - foci_scale_min)
+            foci = foci_scaled * torch.tensor([self.image_width, self.image_height], device=device)
+            
+            # Apply softplus and add minimum threshold to ensure positive focal lengths
+            foci = self.softplus(foci) + 1e-3
+            
+            if self.num_param_to_predict == 4:
+                # For full intrinsics, ensure principal points are within valid range
+                offsets_normalized = intrinsics_normalized[:, 2:]
+                offsets = (0.1 + offsets_normalized * 0.8) * torch.tensor([self.image_width, self.image_height], device=device)
+            else:
+                # For simplified intrinsics, set principal points to image center
+                offsets = torch.ones((batch_size, 2), device=device) * torch.tensor([self.image_width / 2.0, self.image_height / 2.0], device=device)
+            
+            # Construct intrinsics matrix safely with bounds checking
+            mean_foci = torch.mean(foci, dim=0)
+            mean_offsets = torch.mean(offsets, dim=0)
+            intrinsics_mat[:, 0, 0] = torch.clamp(mean_foci[0], min=1e-3)  # fx
+            intrinsics_mat[:, 1, 1] = torch.clamp(mean_foci[1], min=1e-3)  # fy
+            intrinsics_mat[:, 0, 2] = torch.clamp(mean_offsets[0], min=1.0, max=self.image_width-1.0)  # cx
+            intrinsics_mat[:, 1, 2] = torch.clamp(mean_offsets[1], min=1.0, max=self.image_height-1.0)  # cy
+            
+            return intrinsics_mat
+        
+        # Step 1: Stack features along channels
+        B, _, H, W = appearance_flow.shape
+        stacked_features = torch.cat([appearance_flow, optical_flow], dim=1)  # [B, af_channels+of_channels, H, W]
+        
+        # Step 2: Patch-based vectorization
+        # Convert to patches: [B, embed_dim, H//patch_size, W//patch_size]
+        patch_features = self.patch_embed(stacked_features)
+          # Flatten spatial dimensions: [B, embed_dim, num_patches]
+        B, C, pH, pW = patch_features.shape
+        num_patches = pH * pW
+        patch_features = patch_features.view(B, C, num_patches).transpose(1, 2)  # [B, num_patches, embed_dim]
+        
+        # Get appropriately sized positional embedding
+        pos_embed = self._resize_pos_embed(H, W)
+        
+        # Add positional embedding
+        patch_features = patch_features + pos_embed
+        
+        # Step 3: Process with lightweight Vision Transformer
+        for vit_block in self.vit_blocks:
+            patch_features = vit_block(patch_features)
+          # Apply final layer norm
+        patch_features = self.norm(patch_features)
+        
+        # Step 4: Reconstruct spatial features by reshaping (no upsampling)
+        # Reshape back to spatial: [B, embed_dim, pH, pW]
+        reconstructed_features = patch_features.transpose(1, 2).view(B, self.embed_dim, pH, pW)
+        
+        # Step 5: Convolutional prediction network (similar to PoseDecoder_with_intrinsics)
+        out = reconstructed_features
+        for i in range(3):
+            out = self.convs[("pose", i)](out)
+            if i != 2:
+                out = self.relu(out)
+        
+        # Global average pooling
+        out = out.mean(3).mean(2)
+        
+        # Scale factor prediction
+        if self.auto_scale:
+            trans_scale_factor = self.trans_scale_factor_layers(reconstructed_features)
+            axis_scale_factor = self.axis_scale_factor_layers(reconstructed_features)
+            trans_scale_factor = torch.exp(trans_scale_factor * 5) * 1e-3
+            axis_scale_factor = torch.exp(axis_scale_factor * 5) * 1e-2
+        else:
+            trans_scale_factor = torch.ones(out.shape[0], 1, device=device) * 1e-3
+            axis_scale_factor = torch.ones(out.shape[0], 1, device=device) * 1e-2
+        
+        # Apply scale factors
+        out = out.view(-1, self.num_frames_to_predict_for, 1, 6)
+        
+        axisangle = out[..., :3] * axis_scale_factor.unsqueeze(1).unsqueeze(2)
+        translation = out[..., 3:] * trans_scale_factor.unsqueeze(1).unsqueeze(2)
+        
+        print(f'axis_scale: {axis_scale_factor.mean().item():.2e}, trans_scale: {trans_scale_factor.mean().item():.2e}', end='\r')
+        
+        if self.predict_intrinsics:
+            return axisangle, translation, predict_intrinsics(reconstructed_features)
         else:
             return axisangle, translation
