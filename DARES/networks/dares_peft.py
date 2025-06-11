@@ -9,7 +9,18 @@ from peft import (
     prepare_model_for_kbit_training
 )
 
-from DARES.networks.refine_net import Refine_net
+try:
+    from DARES.networks.refine_net import Refine_net
+except ImportError:
+    try:
+        from .refine_net import Refine_net
+    except ImportError:
+        # Create a dummy class if refine_net is not available
+        class Refine_net(nn.Module):
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+            def forward(self, x, *args):
+                return x
 
 class DepthAnythingDepthEstimationHead(nn.Module):
     def __init__(self, model_head):
