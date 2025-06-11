@@ -17,14 +17,34 @@ class TrainerNoPose(DARESTrainer):
 
     def load_model(self):
         # Initialize depth model
-        dares = DARES(use_dora=True,target_modules=['query', 'value'],full_finetune=True)
+        dares_depth = DARES(use_dora=True,target_modules=['query', 'value'],full_finetune=False)
+        dares_pose = DARES(use_dora=True,target_modules=['query', 'value'],full_finetune=True)
         encoders = {
-            "depth_model": dares,
-            "dares_tar": dares,
-            "dares_ref": dares,
+            "depth_model": dares_depth,
+            "dares_tar": dares_pose,
+            "dares_ref": dares_pose,
             "position_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2),
             "transform_encoder": MultiHeadAttentionalResnetEncoder(self.opt.num_layers, False, num_input_images=2)
         }
+        
+        # Initialize pose decoder
+        num_ch_enc = [64, 64, 64, 64]  # This should match DARES output
+        
+        # Create cross-attention pose decoder
+        from DARES.networks.pose_decoder import CrossAttnPoseDecoder_with_intrinsics
+        self.models["pose"] = CrossAttnPoseDecoder_with_intrinsics(
+            num_ch_enc=num_ch_enc,
+            num_input_features=2,  # ref and tar
+            predict_intrinsics=self.opt.learn_intrinsics,
+            image_width=self.opt.width,
+            image_height=self.opt.height,
+            auto_scale=True,
+            num_heads=self.dares_config['num_heads'],
+            hidden_dim=self.dares_config['hidden_dim'],
+            use_scales=self.dares_config['use_scales'],
+            fusion_method=self.dares_config['fusion_method']
+        )
+        
         # No pose encoder/decoder since this is a "no pose" trainer
         decoders = {
             "position": PositionDecoder(encoders["position_encoder"].num_ch_enc, self.opt.scales),
@@ -33,6 +53,9 @@ class TrainerNoPose(DARESTrainer):
 
         all_models = [
             ("depth_model",         encoders["depth_model"],        self.param_monodepth),
+            ("dares_tar",           encoders["dares_tar"],          self.param_monodepth),
+            ("dares_ref",           encoders["dares_ref"],          self.param_monodepth),
+            ("pose",                self.models["pose"],            self.param_monodepth),
             ("position_encoder",    encoders["position_encoder"],   self.param_pose_net),
             ("position",            decoders["position"],           self.param_pose_net),
             ("transform_encoder",   encoders["transform_encoder"],  self.param_pose_net),
@@ -49,6 +72,7 @@ class TrainerNoPose(DARESTrainer):
         if self.pretrained_root_dir is not None:
             model_paths = [
             "depth_model",
+            "pose",
             "position_encoder",
             "position",
             "transform_encoder",
@@ -96,8 +120,9 @@ class TrainerNoPose(DARESTrainer):
         # Depth model parameters
         self.param_monodepth = list(self.models["depth_model"].parameters())
         
-        # Position and transform model parameters (no pose since this is "no pose" trainer)
+        # Position and transform model parameters (including pose decoder)
         self.param_pose_net = (
+            list(self.models["pose"].parameters()) +
             list(self.models["position_encoder"].parameters()) +
             list(self.models["position"].parameters()) +
             list(self.models["transform_encoder"].parameters()) +
@@ -105,7 +130,7 @@ class TrainerNoPose(DARESTrainer):
         )
         
         print(f"Depth model parameters: {len(self.param_monodepth)}")
-        print(f"Position/Transform model parameters: {len(self.param_pose_net)}")
+        print(f"Position/Transform/Pose model parameters: {len(self.param_pose_net)}")
     
     def get_depth_input(self, inputs):
         return inputs['color_aug', 0, 0]

@@ -15,19 +15,19 @@ DefaultOpt_dict = {
         "scales": [0, 1, 2, 3],
         "self_ssi": True,
         "min_depth": 0.1,
-        "max_depth": 20.0,
+        "max_depth": 150.0,
         "use_stereo": False,
         "frame_ids": [0, -1, 1],
         "other_frame_init_weight" : 1e-5,
 
         # OPTIMIZATION options
-        "batch_size": 12,
-        "learning_rate": 1e-5,
+        "batch_size": 16,
+        "learning_rate": 1e-4,
         "weight_decay": 1e-7,
         "weight_decay_pose" : 1e-5,
         "pos_learning_rate": 1e-4,
-        "num_epochs": 20,
-        "scheduler_step_size": 10,
+        "num_epochs": 50,
+        "scheduler_step_size": 20,
 
         # ABLATION options
         "learn_intrinsics" : True,
