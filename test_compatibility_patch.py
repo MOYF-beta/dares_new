@@ -18,9 +18,18 @@ def test_default_import():
     if 'OLD_DARES_ARCH' in os.environ:
         del os.environ['OLD_DARES_ARCH']
     
-    # Force reload of modules
-    if 'DARES.networks.dares_compat' in sys.modules:
-        del sys.modules['DARES.networks.dares_compat']
+    # Force reload of modules - clear all related modules from cache
+    modules_to_clear = [
+        'DARES.networks.dares_compat',
+        'DARES.networks.dares',
+        'DARES.networks.dares_peft',
+        'networks.dares_compat',
+        'networks.dares',
+        'networks.dares_peft'
+    ]
+    for mod in modules_to_clear:
+        if mod in sys.modules:
+            del sys.modules[mod]
     
     try:
         from DARES.networks.dares_compat import DARES
@@ -45,9 +54,18 @@ def test_old_arch_import():
     # Set OLD_DARES_ARCH
     os.environ['OLD_DARES_ARCH'] = '1'
     
-    # Force reload of modules
-    if 'DARES.networks.dares_compat' in sys.modules:
-        del sys.modules['DARES.networks.dares_compat']
+    # Force reload of modules - clear all related modules from cache
+    modules_to_clear = [
+        'DARES.networks.dares_compat',
+        'DARES.networks.dares',
+        'DARES.networks.dares_peft',
+        'networks.dares_compat',
+        'networks.dares',
+        'networks.dares_peft'
+    ]
+    for mod in modules_to_clear:
+        if mod in sys.modules:
+            del sys.modules[mod]
     
     try:
         from DARES.networks.dares_compat import DARES
@@ -77,9 +95,16 @@ def test_dares_mh_compat():
     if 'OLD_DARES_ARCH' in os.environ:
         del os.environ['OLD_DARES_ARCH']
     
-    # Force reload of modules
-    if 'DARES.networks.dares_mh_compat' in sys.modules:
-        del sys.modules['DARES.networks.dares_mh_compat']
+    # Force reload of modules - clear all related modules from cache
+    modules_to_clear = [
+        'DARES.networks.dares_mh_compat',
+        'DARES.networks.dares_peft_MH',
+        'networks.dares_mh_compat',
+        'networks.dares_peft_MH'
+    ]
+    for mod in modules_to_clear:
+        if mod in sys.modules:
+            del sys.modules[mod]
     
     try:
         from DARES.networks.dares_mh_compat import DARES_MH

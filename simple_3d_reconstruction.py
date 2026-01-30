@@ -44,8 +44,8 @@ def load_image(image_path, target_size=(256, 320)):
 
 
 def load_dares_model(model_path, device='cuda'):
-    """Load DARES PEFT model"""
-    print(f"Loading DARES PEFT model from {model_path}")
+    """Load DARES model (PEFT or legacy architecture based on OLD_DARES_ARCH)"""
+    print(f"Loading DARES model from {model_path}")
     
     # Create model
     model = DARES(

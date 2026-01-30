@@ -59,7 +59,7 @@ The following files have been updated to use the compatibility wrappers:
 3. `exps/DSfm/trainer_dsfm.py`
 4. `exps/mh/trainer_mh.py`
 5. `exps/trainerMH_abc.py`
-6. `exps/load_other_models.py` (also respects `OLD_DARES_ARCH` in `load_DARES()` function)
+6. `exps/load_other_models.py` (respects `OLD_DARES_ARCH` in `load_DARES()` function with its own environment check logic)
 7. `simple_3d_reconstruction.py`
 
 ### Import Changes
@@ -92,6 +92,8 @@ This will run syntax validation tests on the compatibility wrappers. Import test
 - DARES_MH only exists in the PEFT architecture, so it will always use `dares_peft_MH` regardless of the environment variable
 - The compatibility wrappers handle both absolute imports (`from DARES.networks...`) and relative imports (`from networks...`)
 - Setting `OLD_DARES_ARCH=0` or unsetting it entirely will use the default PEFT architecture
+- `exps/load_other_models.py` implements its own environment variable checking logic rather than using the compatibility wrapper, but achieves the same result
+
 
 ## Example
 
