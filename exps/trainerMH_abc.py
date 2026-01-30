@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
 from DARES.layers import *
 from DARES.utils import *
-from DARES.networks.dares_peft_MH import DARES_MH
+from DARES.networks.dares_mh_compat import DARES_MH
 
 
 class GlobalRandomSampler(Sampler):

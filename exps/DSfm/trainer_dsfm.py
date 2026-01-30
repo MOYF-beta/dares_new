@@ -14,7 +14,7 @@ from DARES.layers import *
 from DARES.utils import *
 
 from exps.trainer_abc import Trainer
-from DARES.networks.dares_peft import DARES
+from DARES.networks.dares_compat import DARES
 from DARES.networks.resnet_encoder import AttentionalResnetEncoder
 from DARES.networks.optical_flow_decoder import PositionDecoder
 from DARES.networks.appearance_flow_decoder import TransformDecoder

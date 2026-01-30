@@ -1,7 +1,7 @@
 import os
 import torch
 from exps.trainerMH_abc import TrainerMH as BaseTrainerMH
-from DARES.networks.dares_peft_MH import DARES_MH
+from DARES.networks.dares_mh_compat import DARES_MH
 from DARES.networks.resnet_encoder import AttentionalResnetEncoder
 from DARES.networks.optical_flow_decoder import PositionDecoder
 from DARES.networks.appearance_flow_decoder import TransformDecoder

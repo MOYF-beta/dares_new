@@ -19,7 +19,7 @@ import sys
 sys.path.append("/mnt/c/Users/14152/Desktop/new_code")
 sys.path.append("/mnt/c/Users/14152/Desktop/new_code/DARES")
 
-from networks.dares_peft import DARES
+from networks.dares_compat import DARES
 from layers import disp_to_depth
 
 
