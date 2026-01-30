@@ -1,6 +1,6 @@
 import os
 import torch
-from DARES.networks.dares_peft import DARES
+from DARES.networks.dares_compat import DARES
 from DARES.networks.resnet_encoder import AttentionalResnetEncoder,MultiHeadAttentionalResnetEncoder
 from DARES.networks.pose_decoder import PoseDecoder_with_intrinsics as PoseDecoder_i
 from DARES.networks.optical_flow_decoder import PositionDecoder
